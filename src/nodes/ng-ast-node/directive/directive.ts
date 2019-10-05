@@ -1,5 +1,3 @@
-import { Declarable } from '../declarable'
+import { Declarable } from '../declarable';
 
-export class Directive extends Declarable {
-
-}
+export class Directive extends Declarable {}

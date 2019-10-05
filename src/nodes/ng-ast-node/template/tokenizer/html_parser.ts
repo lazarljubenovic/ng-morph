@@ -6,16 +6,22 @@
  * found in the LICENSE file at https://angular.io/license
  */
 
-import {getHtmlTagDefinition} from './html_tags';
-import { Token, TokenizeOptions, TokenizeResult } from './lexer'
-import {ParseTreeResult, Parser} from './parser';
+import { getHtmlTagDefinition } from './html_tags';
+import { Token, TokenizeOptions, TokenizeResult } from './lexer';
+import { ParseTreeResult, Parser } from './parser';
 
-export {ParseTreeResult, TreeError} from './parser';
+export { ParseTreeResult, TreeError } from './parser';
 
 export class HtmlParser extends Parser {
-  constructor() { super(getHtmlTagDefinition); }
+  constructor() {
+    super(getHtmlTagDefinition);
+  }
 
-  public parse(tokenizeResult: TokenizeResult, url: string, options?: TokenizeOptions): ParseTreeResult {
+  public parse(
+    tokenizeResult: TokenizeResult,
+    url: string,
+    options?: TokenizeOptions
+  ): ParseTreeResult {
     return super.parse(tokenizeResult, url, options);
   }
 }

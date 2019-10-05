@@ -1,5 +1,3 @@
-import { Declarable } from '../declarable'
+import { Declarable } from '../declarable';
 
-export class Pipe extends Declarable {
-
-}
+export class Pipe extends Declarable {}
