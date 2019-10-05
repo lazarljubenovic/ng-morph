@@ -1,6 +1,7 @@
 import { ElementLikeTemplateNode, InterpolationTemplateNode, TemplateNode, TextTemplateNode } from './template-nodes'
 import { Template } from './template'
 import * as tntg from './template-nodes-type-guards'
+import { isBoundAttribute, isBoundEvent, isTextAttribute } from './template-nodes-type-guards'
 
 const INDENTATION = 2
 
@@ -43,9 +44,9 @@ export class TemplatePrinter {
 
   private printLineElementLike (templateNode: ElementLikeTemplateNode): string {
     const tagName = templateNode.getTagName()
-    const attributes = templateNode.getTextAttributes().map(input => `${input.getName()} => ${input.getValue()}`).join(', ')
-    const inputs = templateNode.getBoundAttributes().map(input => `${input.getName()} => ${input.getValue()}`).join(', ')
-    const outputs = templateNode.getBoundEvents().map(input => `${input.getName()} => ${input.getHandler()}`).join(', ')
+    const attributes = templateNode.getAttributes(isTextAttribute).map(input => `${input.getName()} => ${input.getValue()}`).join(', ')
+    const inputs = templateNode.getAttributes(isBoundAttribute).map(input => `${input.getName()} => ${input.getValue()}`).join(', ')
+    const outputs = templateNode.getAttributes(isBoundEvent).map(input => `${input.getName()} => ${input.getHandler()}`).join(', ')
     return `[ELEMENT LIKE] <${tagName}> ${attributes} :: ${inputs} :: ${outputs}`
   }
 

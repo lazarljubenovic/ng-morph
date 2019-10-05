@@ -1,6 +1,9 @@
 import * as tsm from 'ts-morph'
 import { Project } from '../src/project'
-import { isElementWithTagName } from '../src/nodes/ng-ast-node/template/template-nodes-type-guards'
+import {
+  isElementWithTagName,
+  isTextAttributeWithName,
+} from '../src/nodes/ng-ast-node/template/template-nodes-type-guards'
 
 const tsmProject = new tsm.Project({
   tsConfigFilePath: '/home/lazar/vertex/tsconfig.json',
@@ -10,16 +13,16 @@ const tsmProject = new tsm.Project({
 const project = new Project(tsmProject)
 const casinosComponent = project.getComponentByClassNameIfSingleOrThrow('CasinosComponent')
 const template = casinosComponent.getTemplate()
-const pageHeaderEl = template.getTemplateNodeIfSingleOrThrow(isElementWithTagName('vtx-page-header'))
 
-console.log()
-console.log(`=== BEFORE ===`)
-console.log(template.getText())
+const pageHeaderEl = template
+  .getTemplateNodeIfSingleOrThrow(isElementWithTagName('vtx-page-header'))
+  .changeTagName('NEW_TAG_NAME')
 
-pageHeaderEl.changeTagName('ng-klubdva')
+pageHeaderEl
+  .getDescendantOrThrow(isElementWithTagName('vtx-icon-casino'))
+  .getFirstAttributeOrThrow(isTextAttributeWithName('size'))
+  .changeName('NEW_ATTR_NAME')
 
-console.log()
-console.log(`=== AFTER ===`)
 console.log(template.getText())
 
 // const templatePrinter = new TemplatePrinter()

@@ -19,6 +19,7 @@ export const isRootLevel = tg.fp.or(
   isComment,
 )
 
+export const isAttribute = tg.isInstanceOf(tn.AttributeTemplateNode)
 export const isTextAttribute = tg.isInstanceOf(tn.TextAttributeTemplateNode)
 export const isBoundAttribute = tg.isInstanceOf(tn.BoundAttributeTemplateNode)
 export const isBoundEvent = tg.isInstanceOf(tn.BoundEventTemplateNode)
@@ -38,3 +39,13 @@ export const isNgTemplateWithReferenceName = (referenceName: string) =>
   tg.fp.and(isNgTemplate, ngTemplate => ngTemplate.hasReferenceNamed(referenceName))
 
 // endregion NgTemplate
+
+// region Attribute
+
+export const isTextAttributeWithName = (attributeName: string) =>
+  tg.fp.and(isTextAttribute, attribute => attribute.getName() == attributeName)
+
+export const isTextAttributeWithValue = (attributeValue: string) =>
+  tg.fp.and(isTextAttribute, attribute => attribute.getValue() == attributeValue)
+
+// endregion Attribute

@@ -41,7 +41,7 @@ export class Template extends NgAstNode {
       throw new Error(`Expected roots to be roots.`)
     }
 
-    template.setRoots(roots)
+    template._setRoots(roots)
     return template
   }
 
@@ -68,10 +68,21 @@ export class Template extends NgAstNode {
     return index
   }
 
-  public forEachTokenBetween (start: Token | number,
-                              end: Token | number,
-                              fn: TapFn<Token>,
-                              { inclusiveStart = false, inclusiveEnd = false } = {}): void {
+  /**
+   * @internal
+   *
+   * Performs a given functions for each token that the template is composed of, between two given tokens.
+   * Either indices or tokens themselves can be given. The inclusiveness of boundaries is configurable.
+   *
+   * @param start - Where to start from; either the index of the token or the token itself.
+   * @param end - Where to end; either the index of the token or the token itself.
+   * @param fn - The function to perform over each token. Its arguments are the token, index and the whole array.
+   * @param { inclusiveStart, inclusiveEnd } - Should `start`/`end` be included in the iteration?
+   */
+  public _forEachTokenBetween (start: Token | number,
+                               end: Token | number,
+                               fn: TapFn<Token>,
+                               { inclusiveStart = false, inclusiveEnd = false } = {}): void {
     start = typeof start == 'number' ? start : this.getTokenIndex(start)
     end = typeof end == 'number' ? end : this.getTokenIndex(end)
     const min = start + (inclusiveStart ? 0 : 1)
@@ -83,21 +94,42 @@ export class Template extends NgAstNode {
     }
   }
 
-  public forEachTokenAfter (token: Token | number,
-                            fn: TapFn<Token>,
-                            { inclusive = false } = {}): void {
+  /**
+   * @internal
+   *
+   * Performs a given functionfor each token that the template is composed of, after the given token.
+   * Either the index o the token itself can eb given. The inclusiveness of the first node is configurable.
+   *
+   * @param token - Where o start from either the index of the token or the token itself.
+   * @param fn - The function to perform over each token. Its arguments are the token, index and the whole array.
+   * @param inclusive - Should `token` be incuded in the iteration?
+   */
+  public _forEachTokenAfter (token: Token | number,
+                             fn: TapFn<Token>,
+                             { inclusive = false } = {}): void {
     const start = typeof token == 'number' ? token : this.getTokenIndex(token)
     const end = this.getTokens().length
-    this.forEachTokenBetween(start, end, fn, { inclusiveStart: inclusive, inclusiveEnd: false })
+    this._forEachTokenBetween(start, end, fn, { inclusiveStart: inclusive, inclusiveEnd: false })
   }
 
-  public setRoots (roots: RootLevelTemplateNode[]) {
+  /**
+   * @internal
+   *
+   * Set the roots. We cannot do this through constructor because we need the instance in order to roots.
+   * The getter ({@link getRoots}) makes sure that we don't try accessing roots before we assign them.
+   *
+   * @param roots - The array of root-level template nodes, which represent the roots of the template's forest.
+   */
+  public _setRoots (roots: RootLevelTemplateNode[]) {
     if (this.roots != null) {
       throw new Error(`Roots have already been set.`)
     }
     this.roots = roots
   }
 
+  /**
+   * Get the root-level templaet nodes, which represent the roots of the template's forest.
+   */
   public getRoots () {
     return throwIfUndefined(this.roots, `Forgot to call setRoots.`)
   }

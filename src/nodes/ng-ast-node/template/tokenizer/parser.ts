@@ -244,9 +244,17 @@ class _TreeBuilder {
     const prefix = startTagToken.parts[1]
     const name = startTagToken.parts[3]
     const attrs: html.Attribute[] = []
-    while (this._peek.type === lex.TokenType.ATTR_NAME) {
-      const attribute = this._consumeAttr(this._advance())
-      attrs.push(attribute)
+    while (true) {
+      if (this._peek.type === lex.TokenType.ATTR_NAME) {
+        const attribute = this._consumeAttr(this._advance())
+        attrs.push(attribute)
+        continue
+      }
+      if (this._peek.type === lex.TokenType.TRIVIA) {
+        this._advance()
+        continue
+      }
+      break
     }
     const fullName = this._getElementFullName(prefix, name, this._getParentElement())
     let selfClosing = false
@@ -333,10 +341,14 @@ class _TreeBuilder {
 
   private _consumeAttr (attrNameToken: lex.Token): html.Attribute {
     const tokens: Token[] = [attrNameToken]
-    const fullName = mergeNsAndName(attrNameToken.parts[0], attrNameToken.parts[1])
+    const fullName = mergeNsAndName(attrNameToken.parts[0], attrNameToken.parts[2])
     let end = attrNameToken.locationSpan.getEnd()
     let value = ''
     let valueSpan: LocationSpan = undefined!
+    if (this._peek.type == lex.TokenType.ATTR_EQUAL) {
+      const eqToken = this._advance()
+      tokens.push(eqToken)
+    }
     if (this._peek.type === lex.TokenType.ATTR_QUOTE) {
       const quoteToken = this._advance()
       tokens.push(quoteToken)
