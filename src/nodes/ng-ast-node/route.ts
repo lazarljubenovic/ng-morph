@@ -4,12 +4,14 @@ import { NgModule } from './ng-module'
 import { Project } from '../../project'
 import { throwIfUndefined } from '../../utils'
 import * as tg from 'type-guards'
+import { LocationSpan } from './location'
 
 export abstract class Route extends NgAstNode {
 
   public constructor (project: Project,
+                      locationSpan: LocationSpan,
                       private path: string) {
-    super(project)
+    super(project, locationSpan)
   }
 
   public getPath (): string {
@@ -39,10 +41,11 @@ export abstract class Route extends NgAstNode {
 export class EagerRoute extends Route {
 
   public constructor (project: Project,
+                      locationSpan: LocationSpan,
                       path: string,
                       private component: Component | undefined,
                       private children: Route[]) {
-    super(project, path)
+    super(project, locationSpan, path)
   }
 
   public getChildren (): Route[] {
@@ -64,10 +67,11 @@ export class EagerRoute extends Route {
 export class LazyRoute extends Route {
 
   public constructor (project: Project,
+                      locationSpan: LocationSpan,
                       path: string,
                       private component: Component | undefined,
                       private ngModule: NgModule) {
-    super(project, path)
+    super(project, locationSpan, path)
   }
 
   public getNgModule () {
@@ -94,10 +98,11 @@ export class LazyRoute extends Route {
 export class RedirectRoute extends Route {
 
   public constructor (project: Project,
+                      locationSpan: LocationSpan,
                       path: string,
                       private redirectTo: string,
                       private pathMatch: 'full' | 'prefix') {
-    super(project, path)
+    super(project, locationSpan, path)
   }
 
   public getChildren (): Route[] {

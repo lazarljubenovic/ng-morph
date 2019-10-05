@@ -1,16 +1,111 @@
 import { NgAstNode } from '../ng-ast-node'
-import * as angularCompiler from '@angular/compiler'
 import { Project } from '../../../project'
+import { LocationFileManager, LocationSpan } from '../location'
+import { Template } from './template'
+import {
+  isBananaInTheBox,
+  isBoundAttribute,
+  isBoundEvent,
+  isReference,
+  isTextAttribute,
+} from './template-nodes-type-guards'
+import { getFirstElementOrThrow, getLastElementOrThrow, Predicate, TapFn, throwIfUndefined } from '../../../utils'
+import { getTokenTypeName, Token, TokenType } from './tokenizer/lexer'
 
 export abstract class TemplateNode extends NgAstNode {
 
-  // TODO: Add source file position of node
+  private parentTemplateNode?: TemplateNode
+  private readonly template: Template
+  private readonly tokens: Token[]
 
-  protected constructor (project: Project) {
-    super(project)
+  protected constructor (
+    project: Project,
+    locationSpan: LocationSpan,
+    tokens: Token[],
+    template: Template,
+  ) {
+    super(project, locationSpan)
+    this.tokens = tokens
+    this.template = template
+  }
+
+  public getTokens<T extends Token> (guard: (token: Token) => token is T): T[]
+  public getTokens (predicate: Predicate<Token>): Token[]
+  public getTokens (): Token[]
+  public getTokens (predicate?: Predicate<Token>): Token[] {
+    return predicate == null
+      ? this.tokens
+      : this.tokens.filter(predicate)
+  }
+
+  public getFirstTokenOfTypeOrThrow<Type extends TokenType> (type: Type): Token<Type> {
+    const result = this.tokens.find(token => token.type == type)
+    return throwIfUndefined(result, [
+      `Expected to find ${getTokenTypeName(type)} `,
+      `among tokens for ${this.constructor.name}: `,
+      `${this.tokens.map(token => token.typeName).join(', ') || `(tokens array is empty)`}.`,
+    ].join(''))
+  }
+
+  public getFirstTokenIndex (): number {
+    const firstToken = getFirstElementOrThrow(this.tokens, `The tokens array is empty.`)
+    const template = this.getTemplate()
+    return template.getTokenIndex(firstToken)
+  }
+
+  public forEachTokenAfterHere (fn: TapFn<Token>) {
+    const lastToken = getLastElementOrThrow(this.tokens, `The tokens array is empty.`)
+    const template = this.getTemplate()
+    template.forEachTokenAfter(lastToken, fn, { inclusive: false })
+  }
+
+  public forEachTokenHere (fn: TapFn<Token>) {
+    const firstToken = getFirstElementOrThrow(this.tokens, `The tokens array is empty.`)
+    const lastToken = getLastElementOrThrow(this.tokens, `The tokens array is empty.`)
+    const template = this.getTemplate()
+    template.forEachTokenBetween(firstToken, lastToken, fn, { inclusiveStart: true, inclusiveEnd: true })
+  }
+
+  public forEachTokenHereAndAfterHere (fn: TapFn<Token>) {
+    this.forEachTokenHere(fn)
+    this.forEachTokenAfterHere(fn)
   }
 
   public abstract getTemplateChildren (): TemplateNode[]
+
+  public setTemplateParent (templateParent: TemplateNode): void {
+    this.parentTemplateNode = templateParent
+  }
+
+  public getTemplateParent (): TemplateNode | undefined {
+    return this.parentTemplateNode
+  }
+
+  public getTemplate (): Template {
+    return this.template
+  }
+
+  public getNextTemplateSibling (): TemplateNode | undefined {
+    const parent = this.getTemplateParent()
+    if (parent != null) {
+      const children = parent.getTemplateChildren()
+      const index = children.findIndex(child => child == this)
+      if (index == -1) throw new Error(`Expected to have found self in parent's children.`)
+      const nextIndex = index + 1
+      return children[nextIndex]
+    } else {
+      const parent = this.getTemplate()
+      const children = parent.getRoots()
+      const index = children.findIndex(child => child == this as any)
+      if (index == -1) throw new Error(`Expected to have found self (root) in template's roots.`)
+      const nextIndex = index + 1
+      return children[nextIndex]
+    }
+  }
+
+  public getNextTemplateSiblingOrThrow (): TemplateNode {
+    return throwIfUndefined(this.getNextTemplateSibling(), `Expected to have found the next sibling.`)
+  }
 
 }
 
@@ -20,8 +115,11 @@ export abstract class TemplateNode extends NgAstNode {
 export class TextTemplateNode extends TemplateNode {
 
   public constructor (project: Project,
+                      locationSpan: LocationSpan,
+                      tokens: Token[],
+                      template: Template,
                       protected text: string) {
-    super(project)
+    super(project, locationSpan, tokens, template)
   }
 
   public getText (): string {
@@ -37,8 +135,11 @@ export class TextTemplateNode extends TemplateNode {
 export class InterpolationTemplateNode extends TemplateNode {
 
   public constructor (project: Project,
+                      locationSpan: LocationSpan,
+                      tokens: Token[],
+                      template: Template,
                       protected text: string) {
-    super(project)
+    super(project, locationSpan, tokens, template)
   }
 
   public getText (): string {
@@ -55,54 +156,139 @@ export class InterpolationTemplateNode extends TemplateNode {
 
 // region Elements, ng-template and ng-container
 
+type AnyAttribute =
+  TextAttributeTemplateNode
+  | BoundAttributeTemplateNode
+  | BoundEventTemplateNode
+  | BananaInTheBoxTemplateNode
+  | ReferenceTemplateNode
+
 export abstract class ElementLikeTemplateNode extends TemplateNode {
 
+  protected textAttributes: TextAttributeTemplateNode[] = []
+  protected boundAttributes: BoundAttributeTemplateNode[] = []
+  protected boundEvents: BoundEventTemplateNode[] = []
+  protected bananaInTheBoxes: BananaInTheBoxTemplateNode[] = []
+  protected references: ReferenceTemplateNode[] = []
+
   public constructor (project: Project,
-                      protected attributes: TextAttributeTemplateNode[],
-                      protected inputs: BoundAttributeTemplateNode[],
-                      protected outputs: BoundEventTemplateNode[],
+                      locationSpan: LocationSpan,
+                      tokens: Token[],
+                      template: Template,
+                      protected allAttributes: Array<AnyAttribute>,
                       protected children: TemplateNode[]) {
-    super(project)
-  }
+    super(project, locationSpan, tokens, template)
 
-  public abstract getTagName (): string
-
-  public getAttributes () {
-    return this.attributes
-  }
-
-  public getInputs () {
-    return this.inputs
-  }
-
-  public getOutputs () {
-    return this.outputs
+    for (const attribute of allAttributes) {
+      if (isTextAttribute(attribute)) this.textAttributes.push(attribute)
+      else if (isBoundAttribute(attribute)) this.boundAttributes.push(attribute)
+      else if (isBoundEvent(attribute)) this.boundEvents.push(attribute)
+      else if (isBananaInTheBox(attribute)) this.bananaInTheBoxes.push(attribute)
+      else if (isReference(attribute)) this.references.push(attribute)
+      else throw new Error(`Unexpected type of attribute ${(attribute as any).constructor.name}.`)
+    }
   }
 
   public getTemplateChildren (): TemplateNode[] {
     return this.children
   }
 
-}
+  public abstract getTagName (): string
 
+  public getTagOpenStartToken (): Token<TokenType.TAG_OPEN_START> {
+    return this.getFirstTokenOfTypeOrThrow(TokenType.TAG_OPEN_START)
+  }
+
+  public getTagEndToken (): Token<TokenType.TAG_CLOSE> {
+    return this.getFirstTokenOfTypeOrThrow(TokenType.TAG_CLOSE)
+  }
+
+  public getStartTagNameLocationSpan (): LocationSpan {
+    const token = this.getTagOpenStartToken()
+    return token.locationSpan.clone().moveStartBy(1) // leading "<"
+  }
+
+  public getEndTagNameLocationSpan (): LocationSpan {
+    const token =  this.getTagEndToken()
+    return token.locationSpan.clone().moveEndBy(-1) // trailing ">"
+  }
+
+  public getAllAttributes () {
+    return this.allAttributes
+  }
+
+  public getTextAttributes () {
+    return this.textAttributes
+  }
+
+  public getBoundAttributes () {
+    return this.boundAttributes
+  }
+
+  public getBoundEvents () {
+    return this.boundEvents
+  }
+
+  public getBananaInTheBoxes () {
+    return this.bananaInTheBoxes
+  }
+
+  public getReferences () {
+    return this.references
+  }
+
+  public getReferenceNamed (referenceName: string): ReferenceTemplateNode | undefined {
+    return this.references.find(reference => reference.getName() == referenceName)
+  }
+
+  public getReferenceNamedOrThrow (referenceName: string): ReferenceTemplateNode {
+    const position = this.getLocationSpan().printLong()
+    const knownReferences = this.getReferences().map(ref => ref.getName()).join(', ') || '(none)'
+    const error = [
+      `Expected element-like node at ${position} to have a reference named "${referenceName}". `,
+      `These references were found: ${knownReferences}.`,
+    ].join('')
+    return throwIfUndefined(this.getReferenceNamed(referenceName), error)
+  }
+
+  public hasReferenceNamed (referenceName: string): boolean {
+    return this.getReferenceNamed(referenceName) != null
+  }
+
+}
 
 export class ElementTemplateNode extends ElementLikeTemplateNode {
 
   public constructor (project: Project,
+                      locationSpan: LocationSpan,
+                      tokens: Token[],
+                      template: Template,
                       protected tagName: string,
-                      attributes: TextAttributeTemplateNode[],
-                      inputs: BoundAttributeTemplateNode[],
-                      outputs: BoundEventTemplateNode[],
+                      allAttributes: Array<AnyAttribute>,
                       children: TemplateNode[]) {
-    super(project, attributes, inputs, outputs, children)
-  }
-
-  public getText (): string {
-    throw new Error(`Not implemented.`)
+    super(project, locationSpan, tokens, template, allAttributes, children)
   }
 
   public getTagName (): string {
-    return this.tagName
+    return this.getStartTagNameLocationSpan().getText()
+  }
+
+  public hasTagName (tagName: string): boolean {
+    return this.getTagName() == tagName
+  }
+
+  public changeTagName (newTagName: string): void {
+    const tokens = [
+      [this.getTagOpenStartToken(), '<' + newTagName] as const,
+      [this.getTagEndToken(), '</' + newTagName + '>'] as const,
+    ]
+    for (const [token, newText] of tokens) {
+      const diff = token.locationSpan.getLength() - newText.length
+      token.locationSpan.replaceText(newText)
+      this.getTemplate().forEachTokenAfter(token, token => {
+        token.locationSpan.moveBy(-diff)
+      }, {inclusive: false})
+    }
   }
 
 }
@@ -128,7 +314,8 @@ export type RootLevelTemplateNode =
   InterpolationTemplateNode |
   ElementTemplateNode |
   NgTemplateTemplateNode |
-  NgContainerTemplateNode
+  NgContainerTemplateNode |
+  CommentTemplateNode
 
 // endregion Elements, ng-template and ng-container
 
@@ -137,9 +324,12 @@ export type RootLevelTemplateNode =
 export class TextAttributeTemplateNode extends TemplateNode {
 
   public constructor (project: Project,
+                      locationSpan: LocationSpan,
+                      tokens: Token[],
+                      template: Template,
                       protected name: string,
                       protected value: string) {
-    super(project)
+    super(project, locationSpan, tokens, template)
   }
 
   public getName (): string {
@@ -159,9 +349,12 @@ export class TextAttributeTemplateNode extends TemplateNode {
 export class BoundAttributeTemplateNode extends TemplateNode {
 
   public constructor (project: Project,
+                      locationSpan: LocationSpan,
+                      tokens: Token[],
+                      template: Template,
                       protected name: string,
                       protected value: string) {
-    super(project)
+    super(project, locationSpan, tokens, template)
   }
 
   public getName (): string {
@@ -181,9 +374,12 @@ export class BoundAttributeTemplateNode extends TemplateNode {
 export class BoundEventTemplateNode extends TemplateNode {
 
   public constructor (project: Project,
+                      locationSpan: LocationSpan,
+                      tokens: Token[],
+                      template: Template,
                       protected name: string,
                       protected handler: string) {
-    super(project)
+    super(project, locationSpan, tokens, template)
   }
 
   public getName (): string {
@@ -200,7 +396,78 @@ export class BoundEventTemplateNode extends TemplateNode {
 
 }
 
+export class BananaInTheBoxTemplateNode extends TemplateNode {
+
+  public constructor (project: Project,
+                      locationSpan: LocationSpan,
+                      tokens: Token[],
+                      template: Template,
+                      protected name: string,
+                      protected value: string) {
+    super(project, locationSpan, tokens, template)
+  }
+
+  public getName (): string {
+    return this.name
+  }
+
+  public getValue (): string {
+    return this.value
+  }
+
+  public getTemplateChildren (): TemplateNode[] {
+    return []
+  }
+
+}
+
+export class ReferenceTemplateNode extends TemplateNode {
+
+  public constructor (project: Project,
+                      locationSpan: LocationSpan,
+                      tokens: Token[],
+                      template: Template,
+                      protected text: string,
+                      protected value: string) {
+    super(project, locationSpan, tokens, template)
+  }
+
+  public getName (): string {
+    // Remove leading '#'
+    return this.text.slice(1)
+  }
+
+  public getValue (): string {
+    return this.value
+  }
+
+  public getTemplateChildren (): TemplateNode[] {
+    return []
+  }
+
+}
+
 // endregion Attributes (text attributes, inputs, outputs)
+
+export class CommentTemplateNode extends TemplateNode {
+
+  public constructor (project: Project,
+                      locationSpan: LocationSpan,
+                      tokens: Token[],
+                      template: Template,
+                      protected value: string | null) {
+    super(project, locationSpan, tokens, template)
+  }
+
+  public getValue (): string | null {
+    return this.value
+  }
+
+  public getTemplateChildren (): TemplateNode[] {
+    return []
+  }
+
+}
 
 export abstract class BindingTargetTemplateNode extends TemplateNode {
 }
@@ -208,9 +475,12 @@ export abstract class BindingTargetTemplateNode extends TemplateNode {
 export class PropertyBindingTargetTemplateNode extends BindingTargetTemplateNode {
 
   public constructor (project: Project,
+                      locationSpan: LocationSpan,
+                      tokens: Token[],
+                      template: Template,
                       protected text: string,
                       protected name: string) {
-    super(project)
+    super(project, locationSpan, tokens, template)
   }
 
   public getText (): string {
@@ -242,9 +512,12 @@ export class PropertyBindingTargetTemplateNode extends BindingTargetTemplateNode
 export class EventBindingTargetTemplateNode extends BindingTargetTemplateNode {
 
   public constructor (project: Project,
+                      locationSpan: LocationSpan,
+                      tokens: Token[],
+                      template: Template,
                       protected text: string,
                       protected name: string) {
-    super(project)
+    super(project, locationSpan, tokens, template)
   }
 
   public getText (): string {

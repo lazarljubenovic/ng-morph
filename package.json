@@ -7,6 +7,8 @@
   "license": "MIT",
   "private": false,
   "scripts": {
+    "build": "tsc",
+    "dev": "tsc -w",
     "test": "mocha ./dst/src/**/*.spec.js"
   },
   "devDependencies": {
@@ -20,7 +22,6 @@
     "typescript": "^3.6.3"
   },
   "dependencies": {
-    "@angular/compiler": "^8.2.7",
     "ts-morph": "^4.0.1",
     "type-guards": "0.11.0",
     "typescript-memoize": "^1.0.0-alpha.3"

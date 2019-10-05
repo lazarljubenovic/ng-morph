@@ -1,12 +1,22 @@
 import * as tsMorph from 'ts-morph'
 import { ClassDeclaration, SyntaxKind, TypeGuards } from 'ts-morph'
 import { NgModule } from './nodes/ng-ast-node/ng-module'
-import { flatMap, throwIfLengthNotOne, throwIfNullish, throwIfUndefined } from './utils'
+import { flatMap, throwIfLengthNotOne, throwIfUndefined } from './utils'
 import { Component } from './nodes/ng-ast-node/component/component'
 import * as path from 'path'
 import { Declarable } from './nodes/ng-ast-node/declarable'
 import { createDeclarable } from './nodes/ng-ast-node/declarable-factory'
 import { Routes } from './nodes/ng-ast-node/routes'
+import { LocationFileManager } from './nodes/ng-ast-node/location'
+
+export interface Singletons {
+  readonly locationFileManager: LocationFileManager
+}
+
+const defaultSingletons: Singletons = {
+  locationFileManager: new LocationFileManager()
+}
+
 
 export class Project {
 
@@ -32,7 +42,8 @@ export class Project {
     return throwIfUndefined(this.getRouterModule())
   }
 
-  constructor (public tsMorphProject: tsMorph.Project) {
+  constructor (public readonly tsMorphProject: tsMorph.Project,
+               public readonly singletons: Singletons = defaultSingletons) {
     this.setUpBuiltInNgModules()
     this.setUp()
   }
@@ -77,7 +88,7 @@ export class Project {
    * @see getComponentsByClassName
    * @throws Error - If none or more than one are found.
    */
-  public getSingleComponentByClassNameOrThrow (className: string): Component {
+  public getComponentByClassNameIfSingleOrThrow (className: string): Component {
     return throwIfLengthNotOne(this.getComponentsByClassName(className), actual => `Expected exactly 1 component with class name "${className}" in the project but got ${actual}.`)
   }
 

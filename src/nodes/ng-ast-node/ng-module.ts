@@ -18,6 +18,7 @@ import { resolveTo } from '../../utils/resolve-to'
 import * as path from 'path'
 import { EagerRoute, LazyRoute, RedirectRoute, Route } from './route'
 import { Routes } from './routes'
+import { LocationSpan } from './location'
 
 function getArrayElementsFromObjectLiteralPropertyInitializer (object: tsm.ObjectLiteralExpression, propertyName: string): tsm.Node[] {
   const objectLiteralElementLike = object.getProperty(propertyName)
@@ -68,6 +69,8 @@ function readRoutingInfoFromArrayLiteralExpression (project: Project, arrayLiter
       throw new Error(`Expected all elements in route definition to be object literals. Instead got ${element.getKindName()}.`)
     }
 
+    const locationSpan = LocationSpan.FromTsm(element)
+
     const pathProperty = getPropertyValueOfKindOrThrow(element, 'path', SyntaxKind.StringLiteral)
     const path = pathProperty.getLiteralValue()
 
@@ -77,21 +80,21 @@ function readRoutingInfoFromArrayLiteralExpression (project: Project, arrayLiter
     if (loadChildrenArrowFunction != null) {
       const ngModuleClassDeclaration = getClassDeclarationFromLoadChildrenArrowFunction(project, loadChildrenArrowFunction)
       const ngModule = project.registerNgModuleOrIgnore(new NgModule(project, ngModuleClassDeclaration))
-      return new LazyRoute(project, path, undefined, ngModule) // TODO: Read component
+      return new LazyRoute(project, locationSpan, path, undefined, ngModule) // TODO: Read component
     } else if (redirectToStringLiteral != null) {
       const pathMatch: string = getPropertyValueOfKindOrThrow(element, 'pathMatch', SyntaxKind.StringLiteral).getLiteralValue()
       if (!tg.isEnum('prefix' as const, 'full' as const)(pathMatch)) {
         throw new Error(`Expected "prefix" or "full" for "pathMatch", but got "${pathMatch}".`)
       }
       const redirectTo = redirectToStringLiteral.getLiteralValue()
-      return new RedirectRoute(project, path, redirectTo, pathMatch)
+      return new RedirectRoute(project, locationSpan, path, redirectTo, pathMatch)
     } else {
       const childrenArrayLiteral = getPropertyValueOfKind(element, 'children', SyntaxKind.ArrayLiteralExpression)
       const componentClassDeclaration = getPropertyValueOfKind(element, 'component', SyntaxKind.ClassDeclaration)
       const ngModule = componentClassDeclaration == null ? undefined : project.getNgModuleWhereDeclared(componentClassDeclaration)
       const component = componentClassDeclaration == null ? undefined : new Component(project, ngModule!, componentClassDeclaration)
       const children = childrenArrayLiteral == null ? [] : readRoutingInfoFromArrayLiteralExpression(project, childrenArrayLiteral!)
-      return new EagerRoute(project, path, component, children)
+      return new EagerRoute(project, locationSpan, path, component, children)
     }
   })
 }
@@ -211,7 +214,7 @@ export class NgModule extends NgAstNode {
 
   public constructor (project: Project,
                       protected classDeclaration: tsm.ClassDeclaration) {
-    super(project)
+    super(project, LocationSpan.FromTsm(classDeclaration))
 
     const filePath = classDeclaration.getSourceFile().getFilePath()
     if (filePath.includes('/node_modules/')) {
@@ -224,7 +227,7 @@ export class NgModule extends NgAstNode {
       this.directImports = results.directImports
       this.exports = results.exports
       this.declarable = results.declarable
-      this.routes = new Routes(project, results.isForRoot, results.isForChild, results.routeDefinitions)
+      this.routes = new Routes(project, this.getLocationSpan(), results.isForRoot, results.isForChild, results.routeDefinitions)
     }
   }
 

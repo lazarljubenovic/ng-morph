@@ -1,14 +1,16 @@
 import { NgAstNode } from './ng-ast-node'
 import { Project } from '../../project'
 import { Route } from './route'
+import { LocationSpan } from './location'
 
 export class Routes extends NgAstNode {
 
   public constructor (project: Project,
+                      locationSpan: LocationSpan,
                       private _isForRoot: boolean,
                       private _isForChild: boolean,
                       private routes: Route[]) {
-    super(project)
+    super(project, locationSpan)
   }
 
   public isForRoot () {

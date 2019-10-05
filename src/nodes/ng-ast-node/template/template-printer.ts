@@ -17,7 +17,7 @@ export class TemplatePrinter {
 
   private printTemplateNode (templateNode: TemplateNode, indent: number): string {
     const templateChildren = templateNode.getTemplateChildren()
-    const fullLine = prefixWithSpaces(indent, this.printLine(templateNode))
+    const fullLine = prefixWithSpaces(indent, this.printLine(templateNode)) + ` ~ ` + templateNode.getLocationSpan().printMedium({oneBased: true})
     if (templateChildren.length > 0) {
       return fullLine + '\n' + templateChildren.map(child => this.printTemplateNode(child, indent + 1)).join('\n')
     } else {
@@ -43,9 +43,9 @@ export class TemplatePrinter {
 
   private printLineElementLike (templateNode: ElementLikeTemplateNode): string {
     const tagName = templateNode.getTagName()
-    const attributes = templateNode.getAttributes().map(input => `${input.getName()} => ${input.getValue()}`).join(', ')
-    const inputs = templateNode.getInputs().map(input => `${input.getName()} => ${input.getValue()}`).join(', ')
-    const outputs = templateNode.getOutputs().map(input => `${input.getName()} => ${input.getHandler()}`).join(', ')
+    const attributes = templateNode.getTextAttributes().map(input => `${input.getName()} => ${input.getValue()}`).join(', ')
+    const inputs = templateNode.getBoundAttributes().map(input => `${input.getName()} => ${input.getValue()}`).join(', ')
+    const outputs = templateNode.getBoundEvents().map(input => `${input.getName()} => ${input.getHandler()}`).join(', ')
     return `[ELEMENT LIKE] <${tagName}> ${attributes} :: ${inputs} :: ${outputs}`
   }
 

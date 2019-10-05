@@ -4,9 +4,8 @@ import { ChangeDetectionStrategy, ViewEncapsulation } from './enums'
 import { Decorator, TypeGuards } from 'ts-morph'
 import * as tg from 'type-guards'
 import * as path from 'path'
-import * as fs from 'fs'
-import * as angularCompiler from '@angular/compiler'
-import { Template } from '../template/template'
+import { defaultTemplateConfig, Template } from '../template/template'
+import { LocationFile, LocationSpan } from '../location'
 
 export class Component extends Declarable {
 
@@ -40,24 +39,31 @@ export class Component extends Declarable {
     return throwIfUndefined(this.getSelectorDefinition())
   }
 
-  public getTemplateString (): string {
-    const inlineTemplateString = this.getInlineTemplateString()
-    const externalTemplateString = this.getExternalTemplateString()
-    const templateString = inlineTemplateString != null ? inlineTemplateString : externalTemplateString
+  public getTemplateLocationSpan (): LocationSpan {
+    const inlineTemplate = this.getInlineTemplateLocationSpan()
+    const externalTemplate = this.getExternalTemplateLocationSpan()
+    const templateString = inlineTemplate != null ? inlineTemplate : externalTemplate
     return throwIfUndefined(templateString, `Expected component to have an inline or external template.`)
   }
 
+  public getTemplateString (): string {
+    return this.getTemplateLocationSpan().getText()
+  }
+
   public getTemplate (): Template {
-    const templateString = this.getTemplateString()
-    const url = this.isInlineTemplate()
-      ? this.getClassDeclaration().getSourceFile().getFilePath()
-      : this.getExternalTemplatePathOrThrow()
-    const output = angularCompiler.parseTemplate(templateString, url, { preserveWhitespaces: true })
-    return Template.FromInternalAst(this.project, output)
+    if (this.isInlineTemplate()) {
+      const locationSpan = this.getInlineTemplateLocationSpan()!
+      return Template.FromLocationSpan(this.project, locationSpan, defaultTemplateConfig)
+    } else {
+      const relativeUrl = this.getExternalTemplatePathOrThrow()
+      const locationFile = this.getExternalFile(relativeUrl)
+      const locationSpan = LocationSpan.FromFullFile(locationFile)
+      return Template.FromLocationSpan(this.project, locationSpan, defaultTemplateConfig)
+    }
   }
 
   public isInlineTemplate (): boolean {
-    return this.getInlineTemplateString() != null
+    return this.getInlineTemplateLocationSpan() != null
   }
 
   public getExternalTemplatePath (): string | undefined {
@@ -143,13 +149,17 @@ export class Component extends Declarable {
     )
   }
 
-  private getInlineTemplateString (): string | undefined {
+  private getInlineTemplateLocationSpan (): LocationSpan | undefined {
     const property = this.getDecoratorProperty(
       'template',
       TypeGuards.isStringLiteral,
       kind => `Expected @Component.template to be a string literal, but got ${kind}.`,
     )
-    return property == null ? undefined : property.getLiteralValue()
+    if (property == null) {
+      return undefined
+    } else {
+      return LocationSpan.FromTsm(property)
+    }
   }
 
   private getTemplateUrl (): string | undefined {
@@ -161,20 +171,21 @@ export class Component extends Declarable {
     return property == null ? undefined : property.getLiteralValue()
   }
 
-  private getExternalTemplateString (): string | undefined {
+  private getExternalTemplateLocationSpan (): LocationSpan | undefined {
     const templateUrl = this.getTemplateUrl()
     if (templateUrl == null) return undefined
-    return this.getExternalFile(templateUrl)
+    const locationFile = this.getExternalFile(templateUrl)
+    return LocationSpan.FromFile(locationFile, 0, locationFile.getLength())
   }
 
   private getDirectoryPath () {
     return this.classDeclaration.getSourceFile().getDirectory().getPath()
   }
 
-  private getExternalFile (relativePath: string): string {
+  private getExternalFile (relativePath: string): LocationFile {
     const directoryPath = this.getDirectoryPath()
     const filePath = path.join(directoryPath, relativePath)
-    return fs.readFileSync(filePath, { encoding: 'utf8' })
+    return this.project.singletons.locationFileManager.get(filePath)
   }
 
   // endregion Internal

@@ -1,7 +1,6 @@
 import * as tsm from 'ts-morph'
 import { Project } from '../src/project'
-import { LazyRoute } from '../src/nodes/ng-ast-node/route'
-import { TemplatePrinter } from '../src/nodes/ng-ast-node/template/template-printer'
+import { isElementWithTagName } from '../src/nodes/ng-ast-node/template/template-nodes-type-guards'
 
 const tsmProject = new tsm.Project({
   tsConfigFilePath: '/home/lazar/vertex/tsconfig.json',
@@ -9,9 +8,20 @@ const tsmProject = new tsm.Project({
 })
 
 const project = new Project(tsmProject)
-const casinosComponent = project.getSingleComponentByClassNameOrThrow('CasinosComponent')
-
+const casinosComponent = project.getComponentByClassNameIfSingleOrThrow('CasinosComponent')
 const template = casinosComponent.getTemplate()
-const templatePrinter = new TemplatePrinter()
-const printed = templatePrinter.print(template)
-console.log(printed)
+const pageHeaderEl = template.getTemplateNodeIfSingleOrThrow(isElementWithTagName('vtx-page-header'))
+
+console.log()
+console.log(`=== BEFORE ===`)
+console.log(template.getText())
+
+pageHeaderEl.changeTagName('ng-klubdva')
+
+console.log()
+console.log(`=== AFTER ===`)
+console.log(template.getText())
+
+// const templatePrinter = new TemplatePrinter()
+// const printed = templatePrinter.print(template)
+// console.log(printed)

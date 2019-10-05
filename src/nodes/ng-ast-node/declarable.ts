@@ -2,13 +2,14 @@ import { NgAstNode } from './ng-ast-node'
 import { ClassDeclaration } from 'ts-morph'
 import { NgModule } from './ng-module'
 import { Project } from '../../project'
+import { LocationSpan } from './location'
 
 export abstract class Declarable extends NgAstNode {
 
   public constructor (project: Project,
-               protected ngModule: NgModule,
-               protected classDeclaration: ClassDeclaration) {
-    super(project)
+                      protected ngModule: NgModule,
+                      protected classDeclaration: ClassDeclaration) {
+    super(project, LocationSpan.FromTsm(classDeclaration))
   }
 
   /**
