@@ -1,6 +1,6 @@
 import { NgAstNode } from '../ng-ast-node'
 import { Project } from '../../../project'
-import { LocationFileManager, LocationSpan } from '../location'
+import { LocationSpan } from '../location'
 import { Template } from './template'
 import {
   isBananaInTheBox,
@@ -11,6 +11,11 @@ import {
 } from './template-nodes-type-guards'
 import { getFirstElementOrThrow, getLastElementOrThrow, Predicate, TapFn, throwIfUndefined } from '../../../utils'
 import { getTokenTypeName, Token, TokenType } from './tokenizer/lexer'
+
+export interface TextReplaceConfig {
+  token: Token
+  newText: string
+}
 
 export abstract class TemplateNode extends NgAstNode {
 
@@ -105,6 +110,16 @@ export abstract class TemplateNode extends NgAstNode {
 
   public getNextTemplateSiblingOrThrow (): TemplateNode {
     return throwIfUndefined(this.getNextTemplateSibling(), `Expected to have found the next sibling.`)
+  }
+
+  public replaceText (textReplaceConfigs: Iterable<TextReplaceConfig>) {
+    for (const { token, newText } of textReplaceConfigs) {
+      const diff = newText.length - token.locationSpan.getLength()
+      token.locationSpan.replaceText(newText)
+      this.getTemplate().forEachTokenAfter(token, token => {
+        token.locationSpan.moveBy(diff)
+      }, { inclusive: false })
+    }
   }
 
 }
@@ -209,7 +224,7 @@ export abstract class ElementLikeTemplateNode extends TemplateNode {
   }
 
   public getEndTagNameLocationSpan (): LocationSpan {
-    const token =  this.getTagEndToken()
+    const token = this.getTagEndToken()
     return token.locationSpan.clone().moveEndBy(-1) // trailing ">"
   }
 
@@ -278,17 +293,10 @@ export class ElementTemplateNode extends ElementLikeTemplateNode {
   }
 
   public changeTagName (newTagName: string): void {
-    const tokens = [
-      [this.getTagOpenStartToken(), '<' + newTagName] as const,
-      [this.getTagEndToken(), '</' + newTagName + '>'] as const,
-    ]
-    for (const [token, newText] of tokens) {
-      const diff = token.locationSpan.getLength() - newText.length
-      token.locationSpan.replaceText(newText)
-      this.getTemplate().forEachTokenAfter(token, token => {
-        token.locationSpan.moveBy(-diff)
-      }, {inclusive: false})
-    }
+    this.replaceText([
+      { token: this.getTagOpenStartToken(), newText: '<' + newTagName },
+      { token: this.getTagEndToken(), newText: '</' + newTagName + '>' },
+    ])
   }
 
 }
