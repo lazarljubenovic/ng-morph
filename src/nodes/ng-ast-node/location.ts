@@ -2,7 +2,6 @@ import * as tsm from 'ts-morph'
 import { SimpleCache } from '../../utils/manager'
 import * as path from 'path'
 import * as fs from 'fs'
-import { ParseSourceSpan } from './template/tokenizer/parse_util'
 
 function isNewLine (char: string) {
   if (char.length !== 1) {
@@ -70,6 +69,14 @@ export class LocationFile {
     this._isDirty = true
   }
 
+  public insertText (offsetIndex: number, newText: string): void {
+    this.replaceText(offsetIndex, 0, newText)
+  }
+
+  public deleteText (offsetIndex: number, deleteCount: number): void {
+    this.replaceText(offsetIndex, deleteCount, '')
+  }
+
 }
 
 export interface PointerVariations {
@@ -115,10 +122,15 @@ export class LocationPointer {
     return this.zeoBasedCol! + (vars.oneBased ? 1 : 0)
   }
 
-  public moveBy (delta: number): this {
-    this.zeroBasedOffset += delta
+  public setOffset (offset: number): this {
+    this.zeroBasedOffset = offset
     this.invalidateLineAndCol()
     return this
+  }
+
+  public moveBy (delta: number): this {
+    const offset = this.getOffset() + delta
+    return this.setOffset(offset)
   }
 
   public clone (): LocationPointer {
@@ -196,13 +208,18 @@ export class LocationPointer {
     let currentLine: number = 0
     let currentCol: number = 0
     for (let index = 0; index <= length; index++) {
-      const char = fileContent[index]
 
       if (currentOffset == this.getOffset()) {
+        // Found
         this.zeroBasedLine = currentLine
         this.zeoBasedCol = currentCol
         return
+      } else if (index == length) {
+        // Not found, but cannot go further (char would be undefined below)
+        break
       }
+
+      const char = fileContent[index]
 
       currentOffset++
       if (isNewLine(char)) {
@@ -213,7 +230,8 @@ export class LocationPointer {
       }
     }
 
-    throw new Error(`Reached the end of file ${this.getFile().getUri()} without reaching offset ${this.getOffset()}.`)
+    const uri = this.getFile().getUri()
+    throw new Error(`Programming error. Reached the end of file ${uri} (of length ${length}) without reaching offset ${this.getOffset()}.`)
   }
 
   private invalidateLineAndCol () {
@@ -288,6 +306,16 @@ export class LocationSpan {
 
   public setEnd (newEnd: LocationPointer): this {
     this.end = newEnd
+    return this
+  }
+
+  public setStartOffset (newStartOffset: number): this {
+    this.start.setOffset(newStartOffset)
+    return this
+  }
+
+  public setEndOffset (newEndOffset: number): this {
+    this.end.setOffset(newEndOffset)
     return this
   }
 

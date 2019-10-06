@@ -9,12 +9,24 @@ import {
   isReference,
   isTextAttribute,
 } from './template-nodes-type-guards'
-import { getFirstElementOrThrow, getLastElementOrThrow, Predicate, TapFn, throwIfUndefined } from '../../../utils'
+import {
+  concatErrors,
+  getFirstElementOrThrow,
+  getLastElementOrThrow,
+  Predicate,
+  TapFn,
+  throwIfUndefined,
+} from '../../../utils'
 import { getTokenTypeName, Token, TokenType } from './tokenizer/lexer'
 
 export interface TextReplaceConfig {
   token: Token
   newText: string
+}
+
+export interface NewTokenConfig {
+  type: TokenType
+  text: string
 }
 
 export abstract class TemplateNode extends NgAstNode {
@@ -116,6 +128,38 @@ export abstract class TemplateNode extends NgAstNode {
         token.locationSpan.moveBy(diff)
       }, { inclusive: false })
     }
+  }
+
+  protected _addTokensAfter (token: Token, ...newTokenConfigs: NewTokenConfig[]): void {
+    if (newTokenConfigs.length == 0) return
+
+    const tokenIndex = this.tokens.indexOf(token)
+    if (tokenIndex == -1) {
+      const tokensArray = this.tokens.map(token => token.printForDebug()).join(', ')
+      const error = [
+        `Cannot add tokens after ${token.printForDebug()}, `,
+        `because it was not found in the array ${tokensArray}.`,
+      ].join('')
+      throw new Error(error)
+    }
+
+    // Create tokens and compute their positions based on text lengths
+    let currentPosition = token.locationSpan.getEnd().getOffset()
+    const newTokens = newTokenConfigs.map(({ type, text }) => {
+      const length = text.length
+      const locationSpan = token.locationSpan.clone()
+      locationSpan.setStartOffset(currentPosition)
+      currentPosition += length
+      locationSpan.setEndOffset(currentPosition)
+      return new Token(type, [text], locationSpan)
+    })
+
+    // Change the local tokens.
+    this.tokens.splice(tokenIndex + 1, 0, ...newTokens)
+
+    // Change tokens saved for the whole template.
+    const newText = newTokenConfigs.map(({text}) => text).join('')
+    this.getTemplate()._addTokensAfter(token, newText, ...newTokens)
   }
 
   protected getTokens<T extends Token> (guard: (token: Token) => token is T): T[]
@@ -310,12 +354,12 @@ export abstract class ElementLikeTemplateNode extends TemplateNode {
   }
 
   public getReferenceNamed (referenceName: string): ReferenceTemplateNode | undefined {
-    return this.references.find(reference => reference.getName() == referenceName)
+    return this.references.find(reference => reference.getAttributeNameString() == referenceName)
   }
 
   public getReferenceNamedOrThrow (referenceName: string): ReferenceTemplateNode {
     const position = this.getLocationSpan().printLong()
-    const knownReferences = this.getAttributes(isReference).map(ref => ref.getName()).join(', ') || '(none)'
+    const knownReferences = this.getAttributes(isReference).map(ref => ref.getAttributeNameString()).join(', ') || '(none)'
     const error = [
       `Expected element-like node at ${position} to have a reference named "${referenceName}". `,
       `These references were found: ${knownReferences}.`,
@@ -396,18 +440,77 @@ export abstract class AttributeTemplateNode extends TemplateNode {
     super(project, locationSpan, tokens, template)
   }
 
-  protected getNameToken () {
+  protected getNameToken (): Token<TokenType.ATTR_NAME> {
     return this.getFirstTokenOfTypeOrThrow(TokenType.ATTR_NAME)
   }
 
-  protected getValueToken () {
+  protected getValueToken (): Token<TokenType.ATTR_VALUE> | undefined {
     return this.getFirstTokenOfType(TokenType.ATTR_VALUE)
   }
 
-  public changeName (newName: string): this {
+  public getAttributeNameString (): string {
+    return this.getNameToken().toString()
+  }
+
+  public hasValue (): boolean {
+    return this.getValueToken() != null
+  }
+
+  public getAttributeValueString (): string | undefined {
+    const valueToken = this.getValueToken()
+    if (valueToken == null) return undefined
+    return valueToken.toString()
+  }
+
+  public getAttributeValueStringOrThrow (customErrMsg?: string): string {
+    const name = this.getAttributeNameString()
+    const forDebug = this.getNameToken().printForDebug()
+    const mainErrMsg = `Expected attribute ${name} (${forDebug}) to have value.`
+    const valueString = this.getAttributeValueString()
+    return throwIfUndefined(valueString, concatErrors(mainErrMsg, customErrMsg))
+  }
+
+  public changeAttributeName (newName: string): this {
     this._replaceTextByTokens([
-      { token: this.getNameToken(), newText: newName }
+      { token: this.getNameToken(), newText: newName },
     ])
+    return this
+  }
+
+  public addAttributeValueOrThrowIfAlreadyExists (newValue: string, customErrMsg?: string): this {
+    const valueToken = this.getValueToken()
+    if (valueToken != null) {
+      const mainErrMsg = `Expected no value for attribute "${this.getAttributeNameString()}", `
+        + `but it already exists: ${valueToken.printForDebug()}.`
+      throw new Error(concatErrors(mainErrMsg, customErrMsg))
+    }
+
+    const newTokenConfig: NewTokenConfig[] = [
+      { type: TokenType.ATTR_EQUAL, text: '=' },
+      { type: TokenType.ATTR_QUOTE, text: '"' },
+      { type: TokenType.ATTR_VALUE, text: newValue },
+      { type: TokenType.ATTR_QUOTE, text: '"' },
+    ]
+    this._addTokensAfter(this.getNameToken(), ...newTokenConfig)
+
+    return this
+  }
+
+  public changeAttributeValue (newValue: string): this {
+    const valueToken = this.getValueToken()
+    if (valueToken == null) return this.addAttributeValueOrThrowIfAlreadyExists(newValue)
+    this._replaceTextByTokens([
+      { token: valueToken, newText: newValue },
+    ])
+    return this
+  }
+
+  public addValueOrOverwriteExisting (newValue: string): this {
+    if (this.hasValue()) {
+      this.changeAttributeValue(newValue)
+    } else {
+      this.addAttributeValueOrThrowIfAlreadyExists(newValue, `This is a programming error and is likely a bug.`)
+    }
     return this
   }
 
@@ -418,18 +521,20 @@ export class TextAttributeTemplateNode extends AttributeTemplateNode {
   public constructor (project: Project,
                       locationSpan: LocationSpan,
                       tokens: Token[],
-                      template: Template,
-                      protected name: string,
-                      protected value: string) {
+                      template: Template) {
     super(project, locationSpan, tokens, template)
   }
 
   public getName (): string {
-    return this.name
+    return this.getAttributeNameString()
   }
 
-  public getValue (): string {
-    return this.value
+  public getValue (): string | undefined {
+    return this.getAttributeValueString()
+  }
+
+  public getValueOrThrow (customErrMsg?: string): string {
+    return this.getAttributeValueStringOrThrow(customErrMsg)
   }
 
   public getTemplateChildren (): TemplateNode[] {
@@ -443,18 +548,8 @@ export class BoundAttributeTemplateNode extends AttributeTemplateNode {
   public constructor (project: Project,
                       locationSpan: LocationSpan,
                       tokens: Token[],
-                      template: Template,
-                      protected name: string,
-                      protected value: string) {
+                      template: Template) {
     super(project, locationSpan, tokens, template)
-  }
-
-  public getName (): string {
-    return this.name
-  }
-
-  public getValue (): string {
-    return this.value
   }
 
   public getTemplateChildren (): TemplateNode[] {
@@ -468,18 +563,16 @@ export class BoundEventTemplateNode extends AttributeTemplateNode {
   public constructor (project: Project,
                       locationSpan: LocationSpan,
                       tokens: Token[],
-                      template: Template,
-                      protected name: string,
-                      protected handler: string) {
+                      template: Template) {
     super(project, locationSpan, tokens, template)
   }
 
-  public getName (): string {
-    return this.name
+  public getHandler (): string | undefined {
+    return this.getAttributeValueString()
   }
 
-  public getHandler (): string {
-    return this.handler
+  public getHandlerOrThrow (customErrMsg?: string): string {
+    return this.getAttributeValueStringOrThrow(customErrMsg)
   }
 
   public getTemplateChildren (): TemplateNode[] {
@@ -493,18 +586,8 @@ export class BananaInTheBoxTemplateNode extends AttributeTemplateNode {
   public constructor (project: Project,
                       locationSpan: LocationSpan,
                       tokens: Token[],
-                      template: Template,
-                      protected name: string,
-                      protected value: string) {
+                      template: Template) {
     super(project, locationSpan, tokens, template)
-  }
-
-  public getName (): string {
-    return this.name
-  }
-
-  public getValue (): string {
-    return this.value
   }
 
   public getTemplateChildren (): TemplateNode[] {
@@ -518,19 +601,8 @@ export class ReferenceTemplateNode extends AttributeTemplateNode {
   public constructor (project: Project,
                       locationSpan: LocationSpan,
                       tokens: Token[],
-                      template: Template,
-                      protected text: string,
-                      protected value: string) {
+                      template: Template) {
     super(project, locationSpan, tokens, template)
-  }
-
-  public getName (): string {
-    // Remove leading '#'
-    return this.text.slice(1)
-  }
-
-  public getValue (): string {
-    return this.value
   }
 
   public getTemplateChildren (): TemplateNode[] {

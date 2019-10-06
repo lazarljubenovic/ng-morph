@@ -6,14 +6,13 @@
  * found in the LICENSE file at https://angular.io/license
  */
 
-import { ParseError, ParseSourceSpan } from './parse_util'
+import { ParseError } from './parse_util'
 
 import * as html from './ast'
 import * as lex from './lexer'
-import { Token } from './lexer'
+import { Token, TokenizeResult } from './lexer'
 import { getNsPrefix, isNgContainer, mergeNsAndName, TagDefinition } from './tags'
 import { LocationSpan } from '../../location'
-import { TokenizeResult } from './lexer'
 
 export class TreeError extends ParseError {
   static create (elementName: string | null, span: LocationSpan, msg: string): TreeError {

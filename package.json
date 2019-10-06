@@ -1,6 +1,9 @@
 {
   "name": "ng-morph",
   "version": "0.0.1",
+  "engines": {
+    "node": ">=12"
+  },
   "main": "index.js",
   "repository": "https://github.com/lazarljubenovic/ng-morph",
   "author": "Lazar Ljubenović <lazar.ljubenovic.1995@gmail.com>",
@@ -15,6 +18,7 @@
     "@types/chai": "^4.2.3",
     "@types/common-tags": "^1.8.0",
     "@types/mocha": "^5.2.7",
+    "@types/semver": "^6.0.2",
     "chai": "^4.2.0",
     "common-tags": "^1.8.0",
     "mocha": "^6.2.0",
@@ -22,6 +26,7 @@
     "typescript": "^3.6.3"
   },
   "dependencies": {
+    "semver": "^6.3.0",
     "ts-morph": "^4.0.1",
     "type-guards": "0.11.0",
     "typescript-memoize": "^1.0.0-alpha.3"

@@ -15,9 +15,7 @@ import {
 } from './template-nodes'
 import * as tg from 'type-guards'
 import { Template, TemplateConfig } from './template'
-import { LocationPointer, LocationSpan } from '../location'
 import { Attribute, Comment, Element, Node, Text } from './tokenizer/ast'
-import { ParseLocation, ParseSourceSpan } from './tokenizer/parse_util'
 
 const NG_CONTAINER_TAG_NAME = 'ng-container'
 const NG_TEMPLATE_TAG_NAME = 'ng-template'
@@ -53,20 +51,20 @@ export function fromAttribute (project: Project,
                                templateConfig: TemplateConfig,
                                htmlNode: Attribute,
 ): TextAttributeTemplateNode | BoundAttributeTemplateNode | BoundEventTemplateNode | BananaInTheBoxTemplateNode | ReferenceTemplateNode {
-  const { name, value } = htmlNode
+  const { name } = htmlNode
   if ((name.startsWith('[') && name.endsWith(']')) || name.startsWith('bind-')) {
-    return new BoundAttributeTemplateNode(project, htmlNode.locationSpan, htmlNode.tokens, template, name, value)
+    return new BoundAttributeTemplateNode(project, htmlNode.locationSpan, htmlNode.tokens, template)
   }
   if ((name.startsWith('(') && name.endsWith(')')) || name.startsWith('on-')) {
-    return new BoundAttributeTemplateNode(project, htmlNode.locationSpan, htmlNode.tokens, template, name, value)
+    return new BoundAttributeTemplateNode(project, htmlNode.locationSpan, htmlNode.tokens, template)
   }
   if ((name.startsWith('[(') && name.endsWith(')]')) || name.startsWith('bindon-')) {
-    return new BananaInTheBoxTemplateNode(project, htmlNode.locationSpan, htmlNode.tokens, template, name, value)
+    return new BananaInTheBoxTemplateNode(project, htmlNode.locationSpan, htmlNode.tokens, template)
   }
   if (name.startsWith('#')) {
-    return new ReferenceTemplateNode(project, htmlNode.locationSpan, htmlNode.tokens, template, name, value)
+    return new ReferenceTemplateNode(project, htmlNode.locationSpan, htmlNode.tokens, template)
   }
-  return new TextAttributeTemplateNode(project, htmlNode.locationSpan, htmlNode.tokens, template, name, value)
+  return new TextAttributeTemplateNode(project, htmlNode.locationSpan, htmlNode.tokens, template)
 }
 
 export function fromComment (project: Project,

@@ -44,9 +44,9 @@ export class TemplatePrinter {
 
   private printLineElementLike (templateNode: ElementLikeTemplateNode): string {
     const tagName = templateNode.getTagName()
-    const attributes = templateNode.getAttributes(isTextAttribute).map(input => `${input.getName()} => ${input.getValue()}`).join(', ')
-    const inputs = templateNode.getAttributes(isBoundAttribute).map(input => `${input.getName()} => ${input.getValue()}`).join(', ')
-    const outputs = templateNode.getAttributes(isBoundEvent).map(input => `${input.getName()} => ${input.getHandler()}`).join(', ')
+    const attributes = templateNode.getAttributes(isTextAttribute).map(input => `${input.getAttributeNameString()} => ${input.getAttributeValueString()}`).join(', ')
+    const inputs = templateNode.getAttributes(isBoundAttribute).map(input => `${input.getAttributeNameString()} => ${input.getAttributeValueString()}`).join(', ')
+    const outputs = templateNode.getAttributes(isBoundEvent).map(input => `${input.getAttributeNameString()} => ${input.getHandler()}`).join(', ')
     return `[ELEMENT LIKE] <${tagName}> ${attributes} :: ${inputs} :: ${outputs}`
   }
 

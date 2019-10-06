@@ -60,7 +60,7 @@ export function getPropertyValueOfKindOrThrow<TKind extends tsm.SyntaxKind> (obj
   return throwIfUndefined(getPropertyValueOfKind(object, propName, kind), `Expected to find "${propName}" in ${object.getText()}.`)
 }
 
-function concatErrors (mainErrorMessage: string, customErrorMessage?: string | undefined | null): string {
+export function concatErrors (mainErrorMessage: string, customErrorMessage?: string | undefined | null): string {
   return [mainErrorMessage, customErrorMessage].filter(tg.isNotNullish).join(' ')
 }
 

@@ -5,7 +5,7 @@ import * as templateNodeTypeGuards from './template-nodes-type-guards'
 import { RootLevelTemplateNode, TemplateNode } from './template-nodes'
 import { fromHtmlNode } from './factory'
 import { LocationSpan } from '../location'
-import { Predicate, TapFn, throwIfUndefined } from '../../../utils'
+import { getFirstElementOrThrow, getLastElementOrThrow, Predicate, TapFn, throwIfUndefined } from '../../../utils'
 import { HtmlParser } from './tokenizer/html_parser'
 import { getHtmlTagDefinition } from './tokenizer/html_tags'
 import { Token, tokenize } from './tokenizer/lexer'
@@ -97,12 +97,12 @@ export class Template extends NgAstNode {
   /**
    * @internal
    *
-   * Performs a given functionfor each token that the template is composed of, after the given token.
+   * Performs a given function for each token that the template is composed of, after the given token.
    * Either the index o the token itself can eb given. The inclusiveness of the first node is configurable.
    *
-   * @param token - Where o start from either the index of the token or the token itself.
+   * @param token - Where to start from either the index of the token or the token itself.
    * @param fn - The function to perform over each token. Its arguments are the token, index and the whole array.
-   * @param inclusive - Should `token` be incuded in the iteration?
+   * @param inclusive - Should `token` be included in the iteration?
    */
   public _forEachTokenAfter (token: Token | number,
                              fn: TapFn<Token>,
@@ -110,6 +110,70 @@ export class Template extends NgAstNode {
     const start = typeof token == 'number' ? token : this.getTokenIndex(token)
     const end = this.getTokens().length
     this._forEachTokenBetween(start, end, fn, { inclusiveStart: inclusive, inclusiveEnd: false })
+  }
+
+  /**
+   * @internal
+   *
+   * Adds tokens after the specified token.
+   * Also updates the file content.
+   *
+   * @param tokenOrIndex - The anchor token ref, or its index. New tokens are added after this one.
+   * @param newText - The collected text of all new tokens.
+   * @param newTokens - Tokens to add.
+   */
+  public _addTokensAfter (tokenOrIndex: Token | number,
+                          newText: string,
+                          ...newTokens: Token[]): void {
+    if (newTokens.length == 0) return
+    // TODO: Assert index
+    const index = typeof tokenOrIndex == 'number' ? tokenOrIndex : this.getTokenIndex(tokenOrIndex)
+
+    // Change the file contents.
+    const token = this.tokens[index]
+    const offset = token.locationSpan.getEnd().getOffset()
+    const file = token.locationSpan.getFile()
+    file.insertText(offset, newText)
+
+    // Add tokens.
+    this.tokens.splice(index + 1, 0, ...newTokens)
+
+    // Move tokens.
+    const firstNewToken = getFirstElementOrThrow(newTokens)
+    const lastNewToken = getLastElementOrThrow(newTokens)
+    const diff = lastNewToken.locationSpan.getEnd().getOffset() - firstNewToken.locationSpan.getStart().getOffset()
+    this._forEachTokenAfter(lastNewToken, token => {
+      token.locationSpan.moveBy(diff)
+    }, { inclusive: false })
+  }
+
+  /**
+   * @internal
+   *
+   * Delete a certain amount of tokens (by default, one) after the given one.
+   * Deleting the given token is configurable.
+   *
+   * @param token - The anchor token that marks the start of deletion. Either its index of the token reference itself.
+   * @param inclusive - Should the given anchor token also be deleted. Not by default.
+   * @param deleteCount - How many tokens to delete in total, in succession. One by default.
+   */
+  public _deleteTokens (token: Token | number,
+                        { inclusive = false, deleteCount = 1} = {}): void {
+    if (deleteCount == 0) return
+
+    const tokenIndex = typeof token == 'number' ? token : this.getTokenIndex(token)
+    const index = tokenIndex + (inclusive ? 0 : 1)
+    // TODO: Assert index
+
+    // Forget tokens that will be removed.
+    for (let offset = 0; offset < deleteCount; offset++) {
+      const tokenToForgetIndex = index + offset
+      const tokenToForget = this.tokens[tokenToForgetIndex]
+      tokenToForget._forget()
+    }
+
+    // Remove tokens from the array of all tokens in the template.
+    this.tokens.splice(index, deleteCount)
   }
 
   /**

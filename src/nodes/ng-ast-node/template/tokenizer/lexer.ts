@@ -11,7 +11,7 @@ import { ParseError } from './parse_util'
 
 import { DEFAULT_INTERPOLATION_CONFIG, InterpolationConfig } from './interpolation_config'
 import { NAMED_ENTITIES, TagContentType, TagDefinition } from './tags'
-import { getLastElement } from '../../../../utils'
+import { concatErrors, getLastElement } from '../../../../utils'
 import { LocationFile, LocationPointer, LocationSpan } from '../../location'
 
 export enum TokenType {
@@ -47,6 +47,8 @@ export function getTokenTypeName (tokenType: TokenType | undefined | null): stri
 
 export class Token<Type extends TokenType = any> {
 
+  private _isForgotten: boolean = false
+
   constructor (
     public type: Type | null,
     public parts: string[],
@@ -60,6 +62,44 @@ export class Token<Type extends TokenType = any> {
 
   public toString (): string {
     return this.locationSpan.toString()
+  }
+
+  public printForDebug (): string {
+    return `Token (${this.typeName}) { "${this}", ${this.locationSpan.printMedium() }`
+  }
+
+  /**
+   * When a token is not a part of the source code anymore, the class instance still remains in memory
+   * if consumer code is storing it somewhere. If the consumer accidentally performs any action on it,
+   * it would be undefined behavior. Hence, all operations over tokens will need to firstly check if a
+   * token is forgotten or not. This is also a public function so the consumer code can easily test if
+   * there's a leftover token somewhere in code.
+   */
+  public isForgotten (): boolean {
+    return this._isForgotten
+  }
+
+  /**
+   * Throws if the token is forgotten.
+   *
+   * @see isForgotten
+   * @param errorMessage - Additional details for the error message.
+   */
+  public assertNotForgotten (errorMessage?: string): void {
+    if (this.isForgotten()) {
+      const mainErrorMessage = `Expected ${this.printForDebug()} not to have been forgotten.`
+      const error = concatErrors(mainErrorMessage, errorMessage)
+      throw new Error(error)
+    }
+  }
+
+  /**
+   * @internal
+   *
+   * Marks the token as forgotten.
+   */
+  public _forget (): void {
+    this._isForgotten = true
   }
 
 }
