@@ -19,6 +19,11 @@ import {
 } from '../../../utils'
 import { getTokenTypeName, Token, TokenType } from './tokenizer/lexer'
 
+function tokesToLocationSpan (tokens: Token[]): LocationSpan {
+  const spans = tokens.map(token => token.locationSpan)
+  return LocationSpan.FromSeveral(...spans)
+}
+
 export interface TextReplaceConfig {
   token: Token
   newText: string
@@ -35,13 +40,12 @@ export abstract class TemplateNode extends NgAstNode {
   private readonly template: Template
   private readonly tokens: Token[]
 
-  protected constructor (
+  public constructor (
     project: Project,
-    locationSpan: LocationSpan,
     tokens: Token[],
     template: Template,
   ) {
-    super(project, locationSpan)
+    super(project, tokesToLocationSpan(tokens))
     this.tokens = tokens
     this.template = template
   }
@@ -158,7 +162,7 @@ export abstract class TemplateNode extends NgAstNode {
     this.tokens.splice(tokenIndex + 1, 0, ...newTokens)
 
     // Change tokens saved for the whole template.
-    const newText = newTokenConfigs.map(({text}) => text).join('')
+    const newText = newTokenConfigs.map(({ text }) => text).join('')
     this.getTemplate()._addTokensAfter(token, newText, ...newTokens)
   }
 
@@ -215,16 +219,12 @@ export abstract class TemplateNode extends NgAstNode {
 
 export class TextTemplateNode extends TemplateNode {
 
-  public constructor (project: Project,
-                      locationSpan: LocationSpan,
-                      tokens: Token[],
-                      template: Template,
-                      protected text: string) {
-    super(project, locationSpan, tokens, template)
+  protected getTextToken (): Token<TokenType.TEXT> {
+    return this.getFirstTokenOfTypeOrThrow(TokenType.TEXT)
   }
 
   public getText (): string {
-    return this.text
+    return this.getTextToken().toString()
   }
 
   public getTemplateChildren (): TemplateNode[] {
@@ -233,14 +233,21 @@ export class TextTemplateNode extends TemplateNode {
 
 }
 
+/**
+ * Represents an interpolation node in the template.
+ *
+ * @example
+ * text {{ interpolated.expression }} more text
+ *
+ * @todo Expose the inner structure of the expression instead of just a string.
+ */
 export class InterpolationTemplateNode extends TemplateNode {
 
   public constructor (project: Project,
-                      locationSpan: LocationSpan,
                       tokens: Token[],
                       template: Template,
                       protected text: string) {
-    super(project, locationSpan, tokens, template)
+    super(project, tokens, template)
   }
 
   public getTextToken () {
@@ -255,6 +262,18 @@ export class InterpolationTemplateNode extends TemplateNode {
     return []
   }
 
+  /**
+   * Changes the text within interpolation. Causes re-parsig of the inner AST of the expression,
+   * so these nodes will be forgotten. Easiest to write quickly, but the slowest method for
+   * changing the interpolated expression. Prefer navigating the inner AST over using this method.
+   *
+   * @param newText - The text that will replace the old text.
+   *
+   * @example
+   * interpolationNode.changeText('newText')
+   *
+   * @todo This needs to cause re-parse of the inner AST.
+   */
   public changeText (newText: string): this {
     this._replaceTextByTokens([
       { token: this.getTextToken(), newText },
@@ -262,11 +281,43 @@ export class InterpolationTemplateNode extends TemplateNode {
     return this
   }
 
-  public trimText (): this {
+  /**
+   * Changes the whitespace around the expression so that each side has the given number of
+   * whitespace.
+   *
+   * When zero is given as the argument, it acts the same as {@link trimText}.
+   * When one is given as the argument, itacts the same as {@link padText}.
+   *
+   * @param padding - How many space characters should be placed around the string.
+   *
+   */
+  public setTextPadding (padding: number): this {
     const trimmedText = this.getText().trim()
-    return this.changeText(trimmedText)
+    const length = trimmedText.length
+    const newText = trimmedText
+      .padStart(trimmedText.length + padding)
+      .padEnd(trimmedText.length + 2 * padding)
+    this.changeText(newText)
+    return this
   }
 
+  /**
+   * Removes any space inside the interpolation brackets.
+   *
+   * @see setTextPadding
+   */
+  public trimText (): this {
+    return this.setTextPadding(0)
+  }
+
+  /**
+   * Formats interpolation so exactly one space character is around each side of the expression.
+   *
+   * @see setTextPadding
+   */
+  public padText (): this {
+    return this.setTextPadding(1)
+  }
 
 }
 
@@ -290,12 +341,11 @@ export abstract class ElementLikeTemplateNode extends TemplateNode {
   protected references: ReferenceTemplateNode[] = []
 
   public constructor (project: Project,
-                      locationSpan: LocationSpan,
                       tokens: Token[],
                       template: Template,
                       protected allAttributes: Array<AnyAttribute>,
                       protected children: TemplateNode[]) {
-    super(project, locationSpan, tokens, template)
+    super(project, tokens, template)
 
     for (const attribute of allAttributes) {
       if (isTextAttribute(attribute)) this.textAttributes.push(attribute)
@@ -376,13 +426,11 @@ export abstract class ElementLikeTemplateNode extends TemplateNode {
 export class ElementTemplateNode extends ElementLikeTemplateNode {
 
   public constructor (project: Project,
-                      locationSpan: LocationSpan,
                       tokens: Token[],
                       template: Template,
-                      protected tagName: string,
                       allAttributes: Array<AnyAttribute>,
                       children: TemplateNode[]) {
-    super(project, locationSpan, tokens, template, allAttributes, children)
+    super(project, tokens, template, allAttributes, children)
   }
 
   public getTagName (): string {
@@ -420,25 +468,18 @@ export class NgContainerTemplateNode extends ElementLikeTemplateNode {
 }
 
 export type RootLevelTemplateNode =
-  TextTemplateNode |
-  InterpolationTemplateNode |
-  ElementTemplateNode |
-  NgTemplateTemplateNode |
-  NgContainerTemplateNode |
-  CommentTemplateNode
+  | TextTemplateNode
+  | InterpolationTemplateNode
+  | ElementTemplateNode
+  | NgTemplateTemplateNode
+  | NgContainerTemplateNode
+  | CommentTemplateNode
 
 // endregion Elements, ng-template and ng-container
 
 // region Attributes (text attributes, inputs, outputs)
 
 export abstract class AttributeTemplateNode extends TemplateNode {
-
-  public constructor (project: Project,
-                      locationSpan: LocationSpan,
-                      tokens: Token[],
-                      template: Template) {
-    super(project, locationSpan, tokens, template)
-  }
 
   protected getNameToken (): Token<TokenType.ATTR_NAME> {
     return this.getFirstTokenOfTypeOrThrow(TokenType.ATTR_NAME)
@@ -518,13 +559,6 @@ export abstract class AttributeTemplateNode extends TemplateNode {
 
 export class TextAttributeTemplateNode extends AttributeTemplateNode {
 
-  public constructor (project: Project,
-                      locationSpan: LocationSpan,
-                      tokens: Token[],
-                      template: Template) {
-    super(project, locationSpan, tokens, template)
-  }
-
   public getName (): string {
     return this.getAttributeNameString()
   }
@@ -545,13 +579,6 @@ export class TextAttributeTemplateNode extends AttributeTemplateNode {
 
 export class BoundAttributeTemplateNode extends AttributeTemplateNode {
 
-  public constructor (project: Project,
-                      locationSpan: LocationSpan,
-                      tokens: Token[],
-                      template: Template) {
-    super(project, locationSpan, tokens, template)
-  }
-
   public getTemplateChildren (): TemplateNode[] {
     return []
   }
@@ -559,13 +586,6 @@ export class BoundAttributeTemplateNode extends AttributeTemplateNode {
 }
 
 export class BoundEventTemplateNode extends AttributeTemplateNode {
-
-  public constructor (project: Project,
-                      locationSpan: LocationSpan,
-                      tokens: Token[],
-                      template: Template) {
-    super(project, locationSpan, tokens, template)
-  }
 
   public getHandler (): string | undefined {
     return this.getAttributeValueString()
@@ -583,13 +603,6 @@ export class BoundEventTemplateNode extends AttributeTemplateNode {
 
 export class BananaInTheBoxTemplateNode extends AttributeTemplateNode {
 
-  public constructor (project: Project,
-                      locationSpan: LocationSpan,
-                      tokens: Token[],
-                      template: Template) {
-    super(project, locationSpan, tokens, template)
-  }
-
   public getTemplateChildren (): TemplateNode[] {
     return []
   }
@@ -597,13 +610,6 @@ export class BananaInTheBoxTemplateNode extends AttributeTemplateNode {
 }
 
 export class ReferenceTemplateNode extends AttributeTemplateNode {
-
-  public constructor (project: Project,
-                      locationSpan: LocationSpan,
-                      tokens: Token[],
-                      template: Template) {
-    super(project, locationSpan, tokens, template)
-  }
 
   public getTemplateChildren (): TemplateNode[] {
     return []
@@ -615,16 +621,12 @@ export class ReferenceTemplateNode extends AttributeTemplateNode {
 
 export class CommentTemplateNode extends TemplateNode {
 
-  public constructor (project: Project,
-                      locationSpan: LocationSpan,
-                      tokens: Token[],
-                      template: Template,
-                      protected value: string | null) {
-    super(project, locationSpan, tokens, template)
+  private getRawTextToken (): Token<TokenType.RAW_TEXT> {
+    return this.getFirstTokenOfTypeOrThrow(TokenType.RAW_TEXT)
   }
 
-  public getValue (): string | null {
-    return this.value
+  public getValue (): string {
+    return this.getRawTextToken().toString()
   }
 
   public getTemplateChildren (): TemplateNode[] {
@@ -639,12 +641,11 @@ export abstract class BindingTargetTemplateNode extends TemplateNode {
 export class PropertyBindingTargetTemplateNode extends BindingTargetTemplateNode {
 
   public constructor (project: Project,
-                      locationSpan: LocationSpan,
                       tokens: Token[],
                       template: Template,
                       protected text: string,
                       protected name: string) {
-    super(project, locationSpan, tokens, template)
+    super(project, tokens, template)
   }
 
   public getText (): string {
@@ -676,12 +677,11 @@ export class PropertyBindingTargetTemplateNode extends BindingTargetTemplateNode
 export class EventBindingTargetTemplateNode extends BindingTargetTemplateNode {
 
   public constructor (project: Project,
-                      locationSpan: LocationSpan,
                       tokens: Token[],
                       template: Template,
                       protected text: string,
                       protected name: string) {
-    super(project, locationSpan, tokens, template)
+    super(project, tokens, template)
   }
 
   public getText (): string {

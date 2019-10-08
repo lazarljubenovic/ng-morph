@@ -25,8 +25,7 @@ export function fromText (project: Project,
                           templateConfig: TemplateConfig,
                           htmlNode: Text,
 ): Array<TextTemplateNode | InterpolationTemplateNode> {
-  const text = htmlNode.value
-  return [new TextTemplateNode(project, htmlNode.locationSpan, htmlNode.tokens, template, text)]
+  return [new TextTemplateNode(project, htmlNode.tokens, template)]
 }
 
 export function fromElement (project: Project,
@@ -34,15 +33,15 @@ export function fromElement (project: Project,
                              templateConfig: TemplateConfig,
                              htmlNode: Element,
 ): ElementTemplateNode | NgContainerTemplateNode | NgTemplateTemplateNode {
-  const tagName = htmlNode.name
+  const { name: tagName, tokens } = htmlNode
   const allAttributes = htmlNode.attrs.map(attrNode => fromAttribute(project, template, templateConfig, attrNode))
   const children = htmlNode.children.flatMap(childNode => fromHtmlNode(project, template, templateConfig, childNode))
   if (tagName == NG_CONTAINER_TAG_NAME) {
-    return new NgContainerTemplateNode(project, htmlNode.locationSpan, htmlNode.tokens, template, allAttributes, children)
+    return new NgContainerTemplateNode(project, tokens, template, allAttributes, children)
   } else if (tagName == NG_TEMPLATE_TAG_NAME) {
-    return new NgTemplateTemplateNode(project, htmlNode.locationSpan, htmlNode.tokens, template, allAttributes, children)
+    return new NgTemplateTemplateNode(project, tokens, template, allAttributes, children)
   } else {
-    return new ElementTemplateNode(project, htmlNode.locationSpan, htmlNode.tokens, template, tagName, allAttributes, children)
+    return new ElementTemplateNode(project, tokens, template, allAttributes, children)
   }
 }
 
@@ -51,28 +50,27 @@ export function fromAttribute (project: Project,
                                templateConfig: TemplateConfig,
                                htmlNode: Attribute,
 ): TextAttributeTemplateNode | BoundAttributeTemplateNode | BoundEventTemplateNode | BananaInTheBoxTemplateNode | ReferenceTemplateNode {
-  const { name } = htmlNode
+  const { name, tokens } = htmlNode
   if ((name.startsWith('[') && name.endsWith(']')) || name.startsWith('bind-')) {
-    return new BoundAttributeTemplateNode(project, htmlNode.locationSpan, htmlNode.tokens, template)
+    return new BoundAttributeTemplateNode(project, tokens, template)
   }
   if ((name.startsWith('(') && name.endsWith(')')) || name.startsWith('on-')) {
-    return new BoundAttributeTemplateNode(project, htmlNode.locationSpan, htmlNode.tokens, template)
+    return new BoundAttributeTemplateNode(project, tokens, template)
   }
   if ((name.startsWith('[(') && name.endsWith(')]')) || name.startsWith('bindon-')) {
-    return new BananaInTheBoxTemplateNode(project, htmlNode.locationSpan, htmlNode.tokens, template)
+    return new BananaInTheBoxTemplateNode(project, tokens, template)
   }
   if (name.startsWith('#')) {
-    return new ReferenceTemplateNode(project, htmlNode.locationSpan, htmlNode.tokens, template)
+    return new ReferenceTemplateNode(project, tokens, template)
   }
-  return new TextAttributeTemplateNode(project, htmlNode.locationSpan, htmlNode.tokens, template)
+  return new TextAttributeTemplateNode(project, tokens, template)
 }
 
 export function fromComment (project: Project,
                              template: Template,
                              templateConfig: TemplateConfig,
                              htmlNode: Comment): CommentTemplateNode {
-  const value = htmlNode.value
-  return new CommentTemplateNode(project, htmlNode.locationSpan, htmlNode.tokens, template, value)
+  return new CommentTemplateNode(project, htmlNode.tokens, template)
 }
 
 export function fromHtmlNode (project: Project, template: Template, templateConfig: TemplateConfig, htmlNode: Node): Array<TemplateNode> {
