@@ -148,8 +148,15 @@ function resolveAsDeveloperDefinedClass (project: Project, ngModuleAstNode: NgMo
     }
     const classDeclaration = elementDefinitions.find(tsm.TypeGuards.isClassDeclaration)
     if (classDeclaration == null) {
-      const definitionKindNames = elementDefinitions.map(def => def.getKindName())
-      throw new Error(`@NgModule.imports found to contain ${element.getText()}, which has ${definitionKindNames.length} definitions: ${definitionKindNames.join(', ')}. All elements of @NgModule.imports are expected to be defined as ClassDeclaration.`)
+      const kindNames = elementDefinitions.map(def => def.getKindName())
+      const text = element.getText()
+      const length = kindNames.length
+      const kindNamesString = kindNames.join(', ')
+      let message = `@NgModule.imports found to contain ${text}, which has ${length} definitions: ${kindNamesString}. `
+        + `All elements of @NgModule.imports are expected to be defined as ClassDeclaration.`
+      console.error(message)
+      continue
+      // throw new Error(message)
     }
 
     if (isCallExpression && project.isClassDeclarationForRouterModule(classDeclaration)) {
