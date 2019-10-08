@@ -1,10 +1,9 @@
 import { NgAstNode } from '../ng-ast-node'
 import { Project } from '../../../project'
 import * as tg from 'type-guards'
-import * as templateNodeTypeGuards from './template-nodes-type-guards'
-import { RootLevelTemplateNode, TemplateNode } from './template-nodes'
+import { RootTemplateNode, TemplateNode } from './template-nodes'
 import { fromHtmlNode } from './factory'
-import { LocationSpan } from '../location'
+import { LocationFile, LocationSpan } from '../location'
 import { getFirstElementOrThrow, getLastElementOrThrow, Predicate, TapFn, throwIfUndefined } from '../../../utils'
 import { HtmlParser } from './tokenizer/html_parser'
 import { getHtmlTagDefinition } from './tokenizer/html_tags'
@@ -27,50 +26,54 @@ export const defaultTemplateConfig = new TemplateConfig('{{', '}}')
 export class Template extends NgAstNode {
 
   public static FromLocationSpan (project: Project,
-                                  locationSpan: LocationSpan,
+                                  temporaryLocationSpan: LocationSpan,
                                   templateConfig: TemplateConfig) {
-    const templateString = locationSpan.getText()
-    const url = locationSpan.getFile().getUri()
+    const templateString = temporaryLocationSpan.getText()
+    const url = temporaryLocationSpan.getFile().getUri()
     const tokenizeResult = tokenize(templateString, url, getHtmlTagDefinition)
     const parseTreeResult = htmlParser.parse(tokenizeResult, url)
-    const template = new Template(project, locationSpan, tokenizeResult.tokens)
+    const reactiveLocationSpan = LocationSpan.ReactiveFromSeveralOrdered(...tokenizeResult.tokens.map(tk => tk.locationSpan))
+    const template = new Template(project, reactiveLocationSpan, tokenizeResult.tokens)
     const roots = parseTreeResult.rootNodes.flatMap(ngNode => fromHtmlNode(project, template, templateConfig, ngNode))
-
-    if (!tg.isArrayOf(templateNodeTypeGuards.isRootLevel)(roots)) {
-      console.log(roots)
-      throw new Error(`Expected roots to be roots.`)
-    }
-
     template._setRoots(roots)
     return template
   }
 
-  private roots?: RootLevelTemplateNode[]
+  private root?: RootTemplateNode
 
-  public constructor (project: Project,
+  private constructor (project: Project,
                       locationSpan: LocationSpan,
                       private tokens: Token[]) {
     super(project, locationSpan)
 
   }
 
+  public getText () {
+    return this.locationSpan.toString()
+  }
+
+  public getFile (): LocationFile {
+    return this.locationSpan.getFile()
+  }
+
   public getTokens (): Token[] {
     return this.tokens
   }
 
-  public getText() {
-    return this.getTokens().map(token => token.toString()).join('')
-  }
-
   public getTokenIndex (token: Token): number {
     const index = this.getTokens().indexOf(token)
-    if (index == -1) throw new Error(`Token of type ${token.typeName} (${token}) not found.`)
+    if (index == -1) {
+      const tokensArray = this.tokens.map(token => token.printForDebug()).join(', ')
+      const error = [
+        `Cannot add tokens after ${token.printForDebug()}, `,
+        `because it was not found in the array ${tokensArray}.`,
+      ].join('')
+      throw new Error(error)
+    }
     return index
   }
 
   /**
-   * @internal
-   *
    * Performs a given functions for each token that the template is composed of, between two given tokens.
    * Either indices or tokens themselves can be given. The inclusiveness of boundaries is configurable.
    *
@@ -78,6 +81,8 @@ export class Template extends NgAstNode {
    * @param end - Where to end; either the index of the token or the token itself.
    * @param fn - The function to perform over each token. Its arguments are the token, index and the whole array.
    * @param { inclusiveStart, inclusiveEnd } - Should `start`/`end` be included in the iteration?
+   *
+   * @internal
    */
   public _forEachTokenBetween (start: Token | number,
                                end: Token | number,
@@ -95,14 +100,13 @@ export class Template extends NgAstNode {
   }
 
   /**
-   * @internal
-   *
    * Performs a given function for each token that the template is composed of, after the given token.
    * Either the index o the token itself can eb given. The inclusiveness of the first node is configurable.
    *
    * @param token - Where to start from either the index of the token or the token itself.
    * @param fn - The function to perform over each token. Its arguments are the token, index and the whole array.
    * @param inclusive - Should `token` be included in the iteration?
+   * @internal
    */
   public _forEachTokenAfter (token: Token | number,
                              fn: TapFn<Token>,
@@ -113,14 +117,14 @@ export class Template extends NgAstNode {
   }
 
   /**
-   * @internal
-   *
    * Adds tokens after the specified token.
    * Also updates the file content.
    *
    * @param tokenOrIndex - The anchor token ref, or its index. New tokens are added after this one.
    * @param newText - The collected text of all new tokens.
    * @param newTokens - Tokens to add.
+   *
+   * @internal
    */
   public _addTokensAfter (tokenOrIndex: Token | number,
                           newText: string,
@@ -131,7 +135,7 @@ export class Template extends NgAstNode {
 
     // Change the file contents.
     const token = this.tokens[index]
-    const offset = token.locationSpan.getEnd().getOffset()
+    const offset = token.locationSpan.getEndOffset()
     const file = token.locationSpan.getFile()
     file.insertText(offset, newText)
 
@@ -141,24 +145,24 @@ export class Template extends NgAstNode {
     // Move tokens.
     const firstNewToken = getFirstElementOrThrow(newTokens)
     const lastNewToken = getLastElementOrThrow(newTokens)
-    const diff = lastNewToken.locationSpan.getEnd().getOffset() - firstNewToken.locationSpan.getStart().getOffset()
+    const diff = lastNewToken.locationSpan.getEndOffset() - firstNewToken.locationSpan.getStartOffset()
     this._forEachTokenAfter(lastNewToken, token => {
       token.locationSpan.moveBy(diff)
     }, { inclusive: false })
   }
 
   /**
-   * @internal
-   *
    * Delete a certain amount of tokens (by default, one) after the given one.
    * Deleting the given token is configurable.
    *
    * @param token - The anchor token that marks the start of deletion. Either its index of the token reference itself.
    * @param inclusive - Should the given anchor token also be deleted. Not by default.
    * @param deleteCount - How many tokens to delete in total, in succession. One by default.
+   *
+   * @internal
    */
   public _deleteTokens (token: Token | number,
-                        { inclusive = false, deleteCount = 1} = {}): void {
+                        { inclusive = false, deleteCount = 1 } = {}): void {
     if (deleteCount == 0) return
 
     const tokenIndex = typeof token == 'number' ? token : this.getTokenIndex(token)
@@ -177,35 +181,36 @@ export class Template extends NgAstNode {
   }
 
   /**
-   * @internal
-   *
    * Set the roots. We cannot do this through constructor because we need the instance in order to roots.
-   * The getter ({@link getRoots}) makes sure that we don't try accessing roots before we assign them.
+   * The getter ({@link getRoot}) makes sure that we don't try accessing roots before we assign them.
    *
    * @param roots - The array of root-level template nodes, which represent the roots of the template's forest.
+   *
+   * @internal
    */
-  public _setRoots (roots: RootLevelTemplateNode[]) {
-    if (this.roots != null) {
+  public _setRoots (roots: TemplateNode[]) {
+    if (this.root != null) {
       throw new Error(`Roots have already been set.`)
     }
-    this.roots = roots
+    this.root = new RootTemplateNode(this.project, this)
+    this.root._setRoots(roots)
   }
 
   /**
-   * Get the root-level templaet nodes, which represent the roots of the template's forest.
+   * Get the root-level template nodes, which represent the roots of the template's forest.
    */
-  public getRoots () {
-    return throwIfUndefined(this.roots, `Forgot to call setRoots.`)
+  public getRoot () {
+    return throwIfUndefined(this.root, `Forgot to call setRoots.`)
   }
 
   public getTemplateNodes<T extends TemplateNode> (guard: tg.Guard<T>): T[]
   public getTemplateNodes (predicate?: Predicate<TemplateNode> | undefined): TemplateNode[]
   public getTemplateNodes (predicate?: Predicate<TemplateNode>): TemplateNode[] {
     const result: TemplateNode[] = []
-    const queue: TemplateNode[] = [...this.getRoots()]
+    const queue: TemplateNode[] = [...this.getRoot().getChildren()]
     while (queue.length > 0) {
       const node = queue.shift()!
-      queue.push(...node.getTemplateChildren())
+      queue.push(...node.getChildren())
       if (predicate != null && predicate(node)) {
         result.push(node)
       }
@@ -217,10 +222,10 @@ export class Template extends NgAstNode {
   public getTemplateNodeIfSingle (predicate: Predicate<TemplateNode>): TemplateNode | undefined
   public getTemplateNodeIfSingle (predicate: Predicate<TemplateNode>): TemplateNode | undefined {
     let result: TemplateNode | undefined
-    const queue: TemplateNode[] = [...this.getRoots()]
+    const queue: TemplateNode[] = [...this.getRoot().getChildren()]
     while (queue.length > 0) {
       const node = queue.shift()!
-      queue.push(...node.getTemplateChildren())
+      queue.push(...node.getChildren())
       if (predicate(node)) {
         if (result === undefined) {
           // If not already found, save it. We keep going to see if it's the only one.
@@ -243,10 +248,10 @@ export class Template extends NgAstNode {
   public getFirstTemplateNode<T extends TemplateNode> (guard: tg.Guard<T>): T | undefined
   public getFirstTemplateNode (predicate?: Predicate<TemplateNode> | undefined): TemplateNode | undefined
   public getFirstTemplateNode (predicate?: Predicate<TemplateNode>): TemplateNode | undefined {
-    const queue: TemplateNode[] = [...this.getRoots()]
+    const queue: TemplateNode[] = [...this.getRoot().getChildren()]
     while (queue.length > 0) {
       const node = queue.shift()!
-      queue.push(...node.getTemplateChildren())
+      queue.push(...node.getChildren())
       if (predicate != null && predicate(node)) {
         return node
       }

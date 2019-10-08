@@ -185,11 +185,11 @@ export class RecursiveVisitor implements Visitor {
 export type HtmlAstPath = AstPath<Node>;
 
 function spanOf (ast: Node) {
-  const start = ast.locationSpan.getStart().getOffset()
-  let end = ast.locationSpan.getStart().getOffset()
+  const start = ast.locationSpan.getStartOffset()
+  let end = ast.locationSpan.getStartOffset()
   if (ast instanceof Element) {
     if (ast.endSourceSpan) {
-      end = ast.endSourceSpan.getStart().getOffset()
+      end = ast.endSourceSpan.getStartOffset()
     } else if (ast.children && ast.children.length) {
       end = spanOf(ast.children[ast.children.length - 1]).end
     }

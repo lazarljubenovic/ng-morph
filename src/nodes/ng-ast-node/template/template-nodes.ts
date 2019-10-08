@@ -3,21 +3,32 @@ import { Project } from '../../../project'
 import { LocationSpan } from '../location'
 import { Template } from './template'
 import {
-  isBananaInTheBox,
-  isBoundAttribute,
-  isBoundEvent,
-  isReference,
-  isTextAttribute,
-} from './template-nodes-type-guards'
-import {
   concatErrors,
+  getFirstElement,
   getFirstElementOrThrow,
+  getLastElement,
   getLastElementOrThrow,
   Predicate,
   TapFn,
   throwIfUndefined,
 } from '../../../utils'
 import { getTokenTypeName, Token, TokenType } from './tokenizer/lexer'
+import { InsertionRule } from './template-node-insertion-rules'
+import {
+  createNode,
+  TemplateNodeTypeToTemplateNodeMap,
+  TemplateNodeTypeToTemplateNodeStructureMap,
+  TemplateNodeTypeWithoutRoot,
+} from './template-nodes-structs'
+
+/**
+ * @fileOverview
+ */
+
+function tokesToReactiveLocationSpan (tokens: Token[]): LocationSpan {
+  const spans = tokens.map(token => token.locationSpan)
+  return LocationSpan.ReactiveFromSeveralOrdered(...spans)
+}
 
 export interface TextReplaceConfig {
   token: Token
@@ -29,31 +40,101 @@ export interface NewTokenConfig {
   text: string
 }
 
+export interface TemplateNodeConstructor<T extends TemplateNode> {
+  new (project: Project, tokens: Token[], template: Template): T
+}
+
 export abstract class TemplateNode extends NgAstNode {
 
   private parentTemplateNode?: TemplateNode
   private readonly template: Template
   private readonly tokens: Token[]
+  private _isForgotten: boolean = false
 
-  protected constructor (
+  public constructor (
     project: Project,
-    locationSpan: LocationSpan,
     tokens: Token[],
     template: Template,
   ) {
-    super(project, locationSpan)
+    super(project, tokesToReactiveLocationSpan(tokens))
     this.tokens = tokens
     this.template = template
   }
 
-  public abstract getTemplateChildren (): TemplateNode[]
-
-  public setTemplateParent (templateParent: TemplateNode): void {
-    this.parentTemplateNode = templateParent
+  public isForgotten (): boolean {
+    return this._isForgotten
   }
 
-  public getTemplateParent (): TemplateNode | undefined {
+  public forget (): void {
+    this._isForgotten = true
+  }
+
+  /**
+   * Throw if the node is forgotten.
+   *
+   * @param errorMessage - Optional additional error message.
+   */
+  public assertNotForgotten (errorMessage?: string): void {
+    if (this.isForgotten()) {
+      const text = this.tokens.map(x => x.toString()).join('')
+      const mainErrorMessage = `Expected the template node "${text}" not to have been forgotten.`
+      const error = concatErrors(mainErrorMessage, errorMessage)
+      throw new Error(error)
+    }
+  }
+
+  public abstract getChildren (): TemplateNode[]
+
+  /**
+   * Set the parent node of this node.
+   * By default, throws if the parent is already set.
+   *
+   * This is a low-level method and it doesn't check or change the parent's `children` property.
+   * Consider using {@link addChildrenAtIndex} on the parent instead.
+   *
+   * @param parent - The node that will become the parent node.
+   * @param allowOverwriting - In case parent is already set, should the method throw.
+   *
+   * @throws Error - Unless `allowOverwriting` flag is set, throw if the parent is already defined.
+   */
+  public setParent (parent: TemplateNode, { allowOverwriting = false } = {}): void {
+    if (!allowOverwriting && this.parentTemplateNode != null) {
+      throw new Error(`Cannot set template parent because it has already been set. ` +
+        `Use "allowOverwriting" option if you want this behavior.`)
+    }
+    this.parentTemplateNode = parent
+  }
+
+  /**
+   * Detach this node from the parent.
+   *
+   * This is a low-level method and it doesn't check or change the parent's `children` property.
+   */
+  public unsetParent (): void {
+    this.parentTemplateNode = undefined
+  }
+
+  public setOrUnsetParent (parent: TemplateNode | undefined): void {
+    this.parentTemplateNode = parent
+  }
+
+  public getParent (): TemplateNode | undefined {
     return this.parentTemplateNode
+  }
+
+  public getParentOrThrow (errorMessage?: string): TemplateNode {
+    return throwIfUndefined(this.getParent(), errorMessage)
+  }
+
+  public getIndexInParentsChildren (): number {
+    const parent = this.getParentOrThrow(`Expected parent not to be null.`)
+    let index: number
+    const siblings = parent.getChildren()
+    index = siblings.indexOf(this as any)
+    if (index == -1) {
+      throw new Error(`Node not found in parent's children. This could be a bug in ng-morph.`)
+    }
+    return index
   }
 
   public getTemplate (): Template {
@@ -61,21 +142,12 @@ export abstract class TemplateNode extends NgAstNode {
   }
 
   public getNextTemplateSibling (): TemplateNode | undefined {
-    const parent = this.getTemplateParent()
-    if (parent != null) {
-      const children = parent.getTemplateChildren()
-      const index = children.findIndex(child => child == this)
-      if (index == -1) throw new Error(`Expected to have found self in parent's children.`)
-      const nextIndex = index + 1
-      return children[nextIndex]
-    } else {
-      const parent = this.getTemplate()
-      const children = parent.getRoots()
-      const index = children.findIndex(child => child == this as any)
-      if (index == -1) throw new Error(`Expected to have found self (root) in template's roots.`)
-      const nextIndex = index + 1
-      return children[nextIndex]
-    }
+    const parent = this.getParentOrThrow()
+    const children = parent.getChildren()
+    const index = children.findIndex(child => child == this)
+    if (index == -1) throw new Error(`Expected to have found self in parent's children.`)
+    const nextIndex = index + 1
+    return children[nextIndex]
   }
 
   public getNextTemplateSiblingOrThrow (): TemplateNode {
@@ -87,10 +159,10 @@ export abstract class TemplateNode extends NgAstNode {
   public getDescendants (): TemplateNode[]
   public getDescendants (predicate?: Predicate<TemplateNode>): TemplateNode[] {
     const result: TemplateNode[] = []
-    const queue: TemplateNode[] = [...this.getTemplateChildren()]
+    const queue: TemplateNode[] = [...this.getChildren()]
     while (queue.length > 0) {
       const node = queue.shift()!
-      queue.push(...node.getTemplateChildren())
+      queue.push(...node.getChildren())
       if (predicate != null && predicate(node)) {
         result.push(node)
       }
@@ -102,10 +174,10 @@ export abstract class TemplateNode extends NgAstNode {
   public getDescendant (predicate: Predicate<TemplateNode> | undefined): TemplateNode | undefined
   public getDescendant (): TemplateNode | undefined
   public getDescendant (predicate?: Predicate<TemplateNode>): TemplateNode | undefined {
-    const queue: TemplateNode[] = [...this.getTemplateChildren()]
+    const queue: TemplateNode[] = [...this.getChildren()]
     while (queue.length > 0) {
       const node = queue.shift()!
-      queue.push(...node.getTemplateChildren())
+      queue.push(...node.getChildren())
       if (predicate != null && predicate(node)) {
         return node
       }
@@ -130,18 +202,22 @@ export abstract class TemplateNode extends NgAstNode {
     }
   }
 
-  protected _addTokensAfter (token: Token, ...newTokenConfigs: NewTokenConfig[]): void {
-    if (newTokenConfigs.length == 0) return
-
-    const tokenIndex = this.tokens.indexOf(token)
-    if (tokenIndex == -1) {
-      const tokensArray = this.tokens.map(token => token.printForDebug()).join(', ')
-      const error = [
-        `Cannot add tokens after ${token.printForDebug()}, `,
-        `because it was not found in the array ${tokensArray}.`,
-      ].join('')
-      throw new Error(error)
-    }
+  /**
+   * After this method is run, the file is also updated and all tokens are in place.
+   *
+   * @param token
+   * @param newTokenConfigs
+   * @param addToLocalTokens
+   *
+   * @returns Created tokens, with their spans set correctly.
+   *
+   * @private
+   */
+  protected _addTokensAfter (token: Token,
+                             newTokenConfigs: NewTokenConfig[],
+                             { addToLocalTokens = false } = {},
+  ): Token[] {
+    if (newTokenConfigs.length == 0) return []
 
     // Create tokens and compute their positions based on text lengths
     let currentPosition = token.locationSpan.getEnd().getOffset()
@@ -155,20 +231,49 @@ export abstract class TemplateNode extends NgAstNode {
     })
 
     // Change the local tokens.
-    this.tokens.splice(tokenIndex + 1, 0, ...newTokens)
+    if (addToLocalTokens) {
+      const tokenIndex = this.tokens.indexOf(token)
+      if (tokenIndex == -1) {
+        const tokensArray = this.tokens.map(token => token.printForDebug()).join(', ')
+        const error = [
+          `Cannot add tokens after ${token.printForDebug()}, `,
+          `because it was not found in the array ${tokensArray}.`,
+        ].join('')
+        throw new Error(error)
+      }
+      this.tokens.splice(tokenIndex + 1, 0, ...newTokens)
+    }
 
     // Change tokens saved for the whole template.
-    const newText = newTokenConfigs.map(({text}) => text).join('')
+    const newText = newTokenConfigs.map(({ text }) => text).join('')
     this.getTemplate()._addTokensAfter(token, newText, ...newTokens)
+
+    return newTokens
   }
 
-  protected getTokens<T extends Token> (guard: (token: Token) => token is T): T[]
-  protected getTokens (predicate: Predicate<Token>): Token[]
-  protected getTokens (): Token[]
-  protected getTokens (predicate?: Predicate<Token>): Token[] {
+  public getTokens<T extends Token> (guard: (token: Token) => token is T): T[]
+  public getTokens (predicate: Predicate<Token>): Token[]
+  public getTokens (): Token[]
+  public getTokens (predicate?: Predicate<Token>): Token[] {
     return predicate == null
       ? this.tokens
       : this.tokens.filter(predicate)
+  }
+
+  public getFirstToken (): Token | undefined {
+    return getFirstElement(this.getTokens())
+  }
+
+  public getFirstTokenOrThrow (): Token {
+    return getFirstElementOrThrow(this.getTokens())
+  }
+
+  public getLastToken (): Token | undefined {
+    return getLastElement(this.getTokens())
+  }
+
+  public getLastTokenOrThrow (): Token {
+    return getLastElementOrThrow(this.getTokens())
   }
 
   protected getFirstTokenOfType<Type extends TokenType> (type: Type): Token<Type> | undefined {
@@ -210,38 +315,36 @@ export abstract class TemplateNode extends NgAstNode {
 
 }
 
-
 // region Text and interpolation
 
-export class TextTemplateNode extends TemplateNode {
+export abstract class ChildTemplateNode extends TemplateNode {
+}
 
-  public constructor (project: Project,
-                      locationSpan: LocationSpan,
-                      tokens: Token[],
-                      template: Template,
-                      protected text: string) {
-    super(project, locationSpan, tokens, template)
+export class TextTemplateNode extends ChildTemplateNode {
+
+  protected getTextToken (): Token<TokenType.TEXT> {
+    return this.getFirstTokenOfTypeOrThrow(TokenType.TEXT)
   }
 
   public getText (): string {
-    return this.text
+    return this.getTextToken().toString()
   }
 
-  public getTemplateChildren (): TemplateNode[] {
+  public getChildren (): never[] {
     return []
   }
 
 }
 
-export class InterpolationTemplateNode extends TemplateNode {
-
-  public constructor (project: Project,
-                      locationSpan: LocationSpan,
-                      tokens: Token[],
-                      template: Template,
-                      protected text: string) {
-    super(project, locationSpan, tokens, template)
-  }
+/**
+ * Represents an interpolation node in the template.
+ *
+ * @example
+ * text {{ interpolated.expression }} more text
+ *
+ * @todo Expose the inner structure of the expression instead of just a string.
+ */
+export class InterpolationTemplateNode extends ChildTemplateNode {
 
   public getTextToken () {
     return this.getFirstTokenOfTypeOrThrow(TokenType.TEXT)
@@ -251,10 +354,22 @@ export class InterpolationTemplateNode extends TemplateNode {
     return this.getTextToken().toString()
   }
 
-  public getTemplateChildren (): TemplateNode[] {
+  public getChildren (): never[] {
     return []
   }
 
+  /**
+   * Changes the text within interpolation. Causes re-parsig of the inner AST of the expression,
+   * so these nodes will be forgotten. Easiest to write quickly, but the slowest method for
+   * changing the interpolated expression. Prefer navigating the inner AST over using this method.
+   *
+   * @param newText - The text that will replace the old text.
+   *
+   * @example
+   * interpolationNode.changeText('newText')
+   *
+   * @todo This needs to cause re-parse of the inner AST.
+   */
   public changeText (newText: string): this {
     this._replaceTextByTokens([
       { token: this.getTextToken(), newText },
@@ -262,11 +377,43 @@ export class InterpolationTemplateNode extends TemplateNode {
     return this
   }
 
-  public trimText (): this {
+  /**
+   * Changes the whitespace around the expression so that each side has the given number of
+   * whitespace.
+   *
+   * When zero is given as the argument, it acts the same as {@link trimText}.
+   * When one is given as the argument, itacts the same as {@link padText}.
+   *
+   * @param padding - How many space characters should be placed around the string.
+   *
+   */
+  public setTextPadding (padding: number): this {
     const trimmedText = this.getText().trim()
-    return this.changeText(trimmedText)
+    const length = trimmedText.length
+    const newText = trimmedText
+      .padStart(length + padding)
+      .padEnd(length + 2 * padding)
+    this.changeText(newText)
+    return this
   }
 
+  /**
+   * Removes any space inside the interpolation brackets.
+   *
+   * @see setTextPadding
+   */
+  public trimText (): this {
+    return this.setTextPadding(0)
+  }
+
+  /**
+   * Formats interpolation so exactly one space character is around each side of the expression.
+   *
+   * @see setTextPadding
+   */
+  public padText (): this {
+    return this.setTextPadding(1)
+  }
 
 }
 
@@ -274,50 +421,177 @@ export class InterpolationTemplateNode extends TemplateNode {
 
 // region Elements, ng-template and ng-container
 
-type AnyAttribute =
-  TextAttributeTemplateNode
-  | BoundAttributeTemplateNode
-  | BoundEventTemplateNode
-  | BananaInTheBoxTemplateNode
-  | ReferenceTemplateNode
+export abstract class ParentTemplateNode extends TemplateNode {
 
-export abstract class ElementLikeTemplateNode extends TemplateNode {
+  protected children: Array<TemplateNode> = []
 
-  protected textAttributes: TextAttributeTemplateNode[] = []
-  protected boundAttributes: BoundAttributeTemplateNode[] = []
-  protected boundEvents: BoundEventTemplateNode[] = []
-  protected bananaInTheBoxes: BananaInTheBoxTemplateNode[] = []
-  protected references: ReferenceTemplateNode[] = []
+  protected attributes: Array<AttributeTemplateNode> = []
 
-  public constructor (project: Project,
-                      locationSpan: LocationSpan,
-                      tokens: Token[],
-                      template: Template,
-                      protected allAttributes: Array<AnyAttribute>,
-                      protected children: TemplateNode[]) {
-    super(project, locationSpan, tokens, template)
+  /**
+   * @internal When we already have children set up properly.
+   * @param children
+   * @private
+   */
+  public _setChildren (children: Array<TemplateNode>) {
+    this.children = children
+  }
 
-    for (const attribute of allAttributes) {
-      if (isTextAttribute(attribute)) this.textAttributes.push(attribute)
-      else if (isBoundAttribute(attribute)) this.boundAttributes.push(attribute)
-      else if (isBoundEvent(attribute)) this.boundEvents.push(attribute)
-      else if (isBananaInTheBox(attribute)) this.bananaInTheBoxes.push(attribute)
-      else if (isReference(attribute)) this.references.push(attribute)
-      else throw new Error(`Unexpected type of attribute ${(attribute as any).constructor.name}.`)
+  /**
+   * Add new children to the children of this node, starting at the specified index.
+   * Also set the parent (by default), in which case the method will throw if the node
+   * is already a part of the tree (because it won't allow overwriting the parent).
+   *
+   * Expects the children to already have their tokens properly set.
+   * This is a low-level method. @todo What to use instead?
+   *
+   * @param newChildren - The child to add.
+   * @param index - This will become the index of the new child.
+   * @param doNotSetParent - Should setting the parent of `newChild` be skipped.
+   *
+   * @throws Error - When the node is forgotten. @todo Create a separate error object for this.
+   * @throws Error - When the given index would create holes in the array.
+   *
+   * @see removeChildAtIndex
+   */
+  public addChildrenAtIndex (newChildren: Array<Exclude<TemplateNode, RootTemplateNode>>,
+                             index: number,
+                             {
+                               doNotSetParent = false,
+                             } = {}): void {
+    this.assertNotForgotten(`Cannot perform "addChildrenAtIndex".`)
+    const children = this.getChildren()
+    if (index < 0 || index > children.length) throw new Error(`Index ${index} out of bounds [0, ${children.length - 1}].`)
+
+    children.splice(index, 0, ...newChildren)
+    if (!doNotSetParent) {
+      newChildren.forEach(newChild => {
+        newChild.setParent(this, { allowOverwriting: false })
+      })
     }
   }
 
-  public getTemplateChildren (): TemplateNode[] {
-    return this.children
+  /**
+   * Remove specific children from the children of this node, starting from the specified index.
+   *
+   * @param index - The index of the child node that will be removed.
+   * @param deleteCount - How many children to delete?
+   * @param doNotUnsetParent - Should unsetting the parent be skipped.
+   * @param doNotForget - Should forgetting the node be skipped.
+   */
+  public removeChildrenAtIndex (index: number,
+                                deleteCount: number,
+                                {
+                                  doNotUnsetParent = false,
+                                  doNotForget = false,
+                                } = {}): void {
+    this.assertNotForgotten(`Cannot perform "removeChildAtIndex".`)
+    if (deleteCount == 0) return
+    const children = this.getChildren()
+    const hi = children.length - deleteCount
+    if (index < 0 || index > hi) throw new Error(`Argument "index" would be out of bounds for some indexes. ` +
+      `Expected a number between 0 and ${hi} (inclusive), but got ${index}.`)
+    const deletedChildren = children.splice(index, deleteCount)
+    if (!doNotUnsetParent) deletedChildren.forEach(deletedChild => deletedChild.unsetParent())
+    if (!doNotForget) deletedChildren.forEach(deletedChild => deletedChild.forget())
   }
 
-  public abstract getTagName (): string
+  /**
+   * @todo docs
+   *
+   * @param child
+   * @param deleteCount
+   * @param doNotUnsetParent
+   * @param doNotForget
+   * @param inclusive
+   *
+   * @see removeChildAtIndex
+   */
+  public removeChildren (child: TemplateNode,
+                         deleteCount: number,
+                         {
+                           doNotUnsetParent = false,
+                           doNotForget = false,
+                         } = {}): void {
+    const children = this.getChildren()
+    const index = children.indexOf(child)
+    if (index == -1) throw new Error(`Cannot remove that child because it's not in the list of children.`)
+    this.removeChildrenAtIndex(index, deleteCount, { doNotUnsetParent, doNotForget })
+  }
+
+  /**
+   * @todo docs
+   */
+  public addAttributesAtIndex (newAttributes: Array<AttributeTemplateNode>,
+                               index: number,
+                               {
+                                 doNotSetParent = false,
+                               } = {}): void {
+    this.assertNotForgotten(`Cannot perform "addAttributesAtIndex".`)
+    const attributes = this.getAttributes()
+    attributes.splice(index, 0, ...newAttributes)
+    if (!doNotSetParent) {
+      newAttributes.forEach(newAttribute => {
+        newAttribute.setParent(this, { allowOverwriting: false })
+      })
+    }
+  }
+
+  /**
+   * @todo docs
+   */
+  public removeAttributesAtIndex (index: number,
+                                  deleteCount: number,
+                                  {
+                                    doNotUnsetParent = false,
+                                    doNotForget = false,
+                                  } = {}): void {
+    this.assertNotForgotten(`Cannot perform "removeAttributesAtIndex".`)
+    if (deleteCount == 0) return
+    const attributes = this.getAttributes()
+    const hi = attributes.length - deleteCount
+    if (index < 0 || index > hi) throw new Error(`Argument "index" would be out of bounds for some indexes. ` +
+      `Expected a number between 0 and ${hi} (inclusive), but got ${index}.`)
+    const deletedAttributes = attributes.splice(index, deleteCount)
+    if (!doNotUnsetParent) deletedAttributes.forEach(deletedAttribute => deletedAttribute.unsetParent())
+    if (!doNotForget) deletedAttributes.forEach(deletedAttribute => deletedAttribute.forget())
+  }
+
+  /**
+   * @todo docs
+   */
+  public removeAttributes (attribute: AttributeTemplateNode,
+                           deleteCount: number,
+                           {
+                             doNotUnsetParent = false,
+                             doNotForget = false,
+                           } = {}): void {
+    const attributes = this.getAttributes()
+    const index = attributes.indexOf(attribute)
+    if (index == -1) throw new Error(`Cannot remove that attribute because it's not in the list of attributes.`)
+    this.removeAttributesAtIndex(index, deleteCount, { doNotUnsetParent, doNotForget })
+  }
+
+  public insert<T extends TemplateNodeTypeWithoutRoot> (
+    insertionRule: InsertionRule<this, TemplateNode>,
+    structure: TemplateNodeTypeToTemplateNodeStructureMap[T],
+  ): TemplateNodeTypeToTemplateNodeMap[T] {
+    const { previousToken } = insertionRule.getInfo(this)
+    const { tokenConfigs, ctor } = createNode(structure)
+    const tokens = this._addTokensAfter(previousToken, tokenConfigs)
+    const newNode = new ctor(this.project, tokens, this.getTemplate())
+    insertionRule.insert(this, newNode)
+    return newNode
+  }
 
   public getTagOpenStartToken (): Token<TokenType.TAG_OPEN_START> {
     return this.getFirstTokenOfTypeOrThrow(TokenType.TAG_OPEN_START)
   }
 
-  public getTagEndToken (): Token<TokenType.TAG_CLOSE> {
+  public getTagOpenEndToken (): Token<TokenType.TAG_OPEN_END> {
+    return this.getFirstTokenOfTypeOrThrow(TokenType.TAG_OPEN_END)
+  }
+
+  public getTagCloseToken (): Token<TokenType.TAG_CLOSE> {
     return this.getFirstTokenOfTypeOrThrow(TokenType.TAG_CLOSE)
   }
 
@@ -327,24 +601,70 @@ export abstract class ElementLikeTemplateNode extends TemplateNode {
   }
 
   public getEndTagNameLocationSpan (): LocationSpan {
-    const token = this.getTagEndToken()
+    const token = this.getTagCloseToken()
     return token.locationSpan.clone().moveEndBy(-1) // trailing ">"
+  }
+
+  public _setAttributes (attributes: AttributeTemplateNode[]) {
+    this.attributes = attributes
+  }
+
+  public getChildren<T extends TemplateNode> (guard: (node: TemplateNode) => node is T): T[]
+  public getChildren (predicate?: Predicate<TemplateNode> | undefined): TemplateNode[]
+  public getChildren (predicate?: Predicate<TemplateNode>): TemplateNode[] {
+    return predicate == null
+      ? this.children
+      : this.children.filter(predicate)
+  }
+
+  public getFirstChild<T extends TemplateNode> (guard: (node: TemplateNode) => node is T): T | undefined
+  public getFirstChild (predicate?: Predicate<TemplateNode> | undefined): TemplateNode | undefined
+  public getFirstChild (predicate?: Predicate<TemplateNode>): TemplateNode | undefined {
+    const children = this.getChildren()
+    return predicate == null
+      ? children[0]
+      : children.find(predicate)
+  }
+
+  public getFirstChildOrThrow<T extends TemplateNode> (guard: (node: TemplateNode) => node is T): T
+  public getFirstChildOrThrow (predicate?: Predicate<TemplateNode> | undefined): TemplateNode
+  public getFirstChildOrThrow (predicate?: Predicate<TemplateNode>): TemplateNode {
+    return throwIfUndefined(this.getFirstChild(predicate), `Expected to find an attribute.`)
+  }
+
+  public getFirstChildIf<T extends TemplateNode> (guard: (node: TemplateNode) => node is T): T | undefined
+  public getFirstChildIf (predicate: Predicate<TemplateNode>): TemplateNode | undefined
+  public getFirstChildIf (predicate: Predicate<TemplateNode>): TemplateNode | undefined {
+    const firstChild = this.getFirstChild()
+    return firstChild == null
+      ? undefined
+      : predicate(firstChild) ? firstChild : undefined
+  }
+
+  public getFirstChildIfOrThrow<T extends TemplateNode> (guard: (node: TemplateNode) => node is T, errMsg?: string): T
+  public getFirstChildIfOrThrow (predicate: Predicate<TemplateNode>, errMsg?: string): TemplateNode
+  public getFirstChildIfOrThrow (predicate: Predicate<TemplateNode>, errMsg?: string): TemplateNode {
+    return throwIfUndefined(
+      this.getFirstChildIf(predicate),
+      concatErrors(`Expected the first child to satisfy a certain condition.`, errMsg),
+    )
   }
 
   public getAttributes<T extends AttributeTemplateNode> (guard: (attr: AttributeTemplateNode) => attr is T): T[]
   public getAttributes (predicate?: Predicate<AttributeTemplateNode> | undefined): AttributeTemplateNode[]
   public getAttributes (predicate?: Predicate<AttributeTemplateNode>): AttributeTemplateNode[] {
     return predicate == null
-      ? this.allAttributes
-      : this.allAttributes.filter(predicate)
+      ? this.attributes
+      : this.attributes.filter(predicate)
   }
 
   public getFirstAttribute<T extends AttributeTemplateNode> (guard: (attr: AttributeTemplateNode) => attr is T): T | undefined
   public getFirstAttribute (predicate?: Predicate<AttributeTemplateNode> | undefined): AttributeTemplateNode | undefined
   public getFirstAttribute (predicate?: Predicate<AttributeTemplateNode>): AttributeTemplateNode | undefined {
+    const attributes = this.getAttributes()
     return predicate == null
-      ? this.allAttributes[0]
-      : this.allAttributes.find(predicate)
+      ? attributes[0]
+      : attributes.find(predicate)
   }
 
   public getFirstAttributeOrThrow<T extends AttributeTemplateNode> (guard: (attr: AttributeTemplateNode) => attr is T): T
@@ -353,37 +673,44 @@ export abstract class ElementLikeTemplateNode extends TemplateNode {
     return throwIfUndefined(this.getFirstAttribute(predicate), `Expected to find an attribute.`)
   }
 
-  public getReferenceNamed (referenceName: string): ReferenceTemplateNode | undefined {
-    return this.references.find(reference => reference.getAttributeNameString() == referenceName)
+}
+
+export class RootTemplateNode extends ParentTemplateNode {
+
+  private roots?: Array<TemplateNode>
+
+  public constructor (project: Project,
+                      template: Template) {
+    super(project, [new Token(TokenType.TRIVIA, [], LocationSpan.FromFullFile(template.getFile()))], template)
   }
 
-  public getReferenceNamedOrThrow (referenceName: string): ReferenceTemplateNode {
-    const position = this.getLocationSpan().printLong()
-    const knownReferences = this.getAttributes(isReference).map(ref => ref.getAttributeNameString()).join(', ') || '(none)'
-    const error = [
-      `Expected element-like node at ${position} to have a reference named "${referenceName}". `,
-      `These references were found: ${knownReferences}.`,
-    ].join('')
-    return throwIfUndefined(this.getReferenceNamed(referenceName), error)
+  public getChildren (): TemplateNode[] {
+    return this.getRoots()
   }
 
-  public hasReferenceNamed (referenceName: string): boolean {
-    return this.getReferenceNamed(referenceName) != null
+  /**
+   * @param roots
+   *
+   * @internal
+   */
+  public _setRoots (roots: TemplateNode[]) {
+    if (this.roots != null) {
+      throw new Error(`Roots have already been set.`)
+    }
+    this.roots = roots
+  }
+
+  /**
+   * Get the root-level template nodes, which represent the roots of the template's forest.
+   */
+  private getRoots () {
+    return throwIfUndefined(this.roots, `Forgot to call setRoots.`)
   }
 
 }
 
-export class ElementTemplateNode extends ElementLikeTemplateNode {
 
-  public constructor (project: Project,
-                      locationSpan: LocationSpan,
-                      tokens: Token[],
-                      template: Template,
-                      protected tagName: string,
-                      allAttributes: Array<AnyAttribute>,
-                      children: TemplateNode[]) {
-    super(project, locationSpan, tokens, template, allAttributes, children)
-  }
+export class ElementTemplateNode extends ParentTemplateNode {
 
   public getTagName (): string {
     return this.getStartTagNameLocationSpan().getText()
@@ -396,14 +723,48 @@ export class ElementTemplateNode extends ElementLikeTemplateNode {
   public changeTagName (newTagName: string): this {
     this._replaceTextByTokens([
       { token: this.getTagOpenStartToken(), newText: '<' + newTagName },
-      { token: this.getTagEndToken(), newText: '</' + newTagName + '>' },
+      { token: this.getTagCloseToken(), newText: '</' + newTagName + '>' },
     ])
     return this
   }
 
+  /**
+   * @todo
+   * @param classNames
+   */
+  public addClassNames (...classNames: string[]): this {
+    throw new Error(`Not implemented.`)
+  }
+
+  /**
+   * @todo
+   * @param classNames
+   */
+  public removeClassNames (...classNames: string[]): this {
+    throw new Error(`Not implemented.`)
+  }
+
+  /**
+   * @todo
+   * @param id
+   * @param overwrite
+   * @param throwIfOverWrite
+   */
+  public setId (id: string, { overwrite = false, throwIfOverWrite = false } = {}): this {
+    throw new Error(`Not implemented.`)
+  }
+
+  /**
+   * @todo
+   * @param throwIfAlreadyNotPresent
+   */
+  public removeId ({ throwIfAlreadyNotPresent = false } = {}): this {
+    throw new Error(`Not implemented.`)
+  }
+
 }
 
-export class NgTemplateTemplateNode extends ElementLikeTemplateNode {
+export class NgTemplateTemplateNode extends ParentTemplateNode {
 
   public getTagName (): string {
     return `ng-template`
@@ -411,7 +772,7 @@ export class NgTemplateTemplateNode extends ElementLikeTemplateNode {
 
 }
 
-export class NgContainerTemplateNode extends ElementLikeTemplateNode {
+export class NgContainerTemplateNode extends ParentTemplateNode {
 
   public getTagName (): string {
     return `ng-container`
@@ -419,26 +780,11 @@ export class NgContainerTemplateNode extends ElementLikeTemplateNode {
 
 }
 
-export type RootLevelTemplateNode =
-  TextTemplateNode |
-  InterpolationTemplateNode |
-  ElementTemplateNode |
-  NgTemplateTemplateNode |
-  NgContainerTemplateNode |
-  CommentTemplateNode
-
 // endregion Elements, ng-template and ng-container
 
 // region Attributes (text attributes, inputs, outputs)
 
 export abstract class AttributeTemplateNode extends TemplateNode {
-
-  public constructor (project: Project,
-                      locationSpan: LocationSpan,
-                      tokens: Token[],
-                      template: Template) {
-    super(project, locationSpan, tokens, template)
-  }
 
   protected getNameToken (): Token<TokenType.ATTR_NAME> {
     return this.getFirstTokenOfTypeOrThrow(TokenType.ATTR_NAME)
@@ -491,7 +837,7 @@ export abstract class AttributeTemplateNode extends TemplateNode {
       { type: TokenType.ATTR_VALUE, text: newValue },
       { type: TokenType.ATTR_QUOTE, text: '"' },
     ]
-    this._addTokensAfter(this.getNameToken(), ...newTokenConfig)
+    this._addTokensAfter(this.getNameToken(), newTokenConfig, { addToLocalTokens: true })
 
     return this
   }
@@ -514,16 +860,13 @@ export abstract class AttributeTemplateNode extends TemplateNode {
     return this
   }
 
+  public getChildren (): never[] {
+    return []
+  }
+
 }
 
 export class TextAttributeTemplateNode extends AttributeTemplateNode {
-
-  public constructor (project: Project,
-                      locationSpan: LocationSpan,
-                      tokens: Token[],
-                      template: Template) {
-    super(project, locationSpan, tokens, template)
-  }
 
   public getName (): string {
     return this.getAttributeNameString()
@@ -537,35 +880,13 @@ export class TextAttributeTemplateNode extends AttributeTemplateNode {
     return this.getAttributeValueStringOrThrow(customErrMsg)
   }
 
-  public getTemplateChildren (): TemplateNode[] {
-    return []
-  }
-
 }
 
 export class BoundAttributeTemplateNode extends AttributeTemplateNode {
 
-  public constructor (project: Project,
-                      locationSpan: LocationSpan,
-                      tokens: Token[],
-                      template: Template) {
-    super(project, locationSpan, tokens, template)
-  }
-
-  public getTemplateChildren (): TemplateNode[] {
-    return []
-  }
-
 }
 
 export class BoundEventTemplateNode extends AttributeTemplateNode {
-
-  public constructor (project: Project,
-                      locationSpan: LocationSpan,
-                      tokens: Token[],
-                      template: Template) {
-    super(project, locationSpan, tokens, template)
-  }
 
   public getHandler (): string | undefined {
     return this.getAttributeValueString()
@@ -575,141 +896,117 @@ export class BoundEventTemplateNode extends AttributeTemplateNode {
     return this.getAttributeValueStringOrThrow(customErrMsg)
   }
 
-  public getTemplateChildren (): TemplateNode[] {
-    return []
-  }
-
 }
 
-export class BananaInTheBoxTemplateNode extends AttributeTemplateNode {
-
-  public constructor (project: Project,
-                      locationSpan: LocationSpan,
-                      tokens: Token[],
-                      template: Template) {
-    super(project, locationSpan, tokens, template)
-  }
-
-  public getTemplateChildren (): TemplateNode[] {
-    return []
-  }
-
-}
-
-export class ReferenceTemplateNode extends AttributeTemplateNode {
-
-  public constructor (project: Project,
-                      locationSpan: LocationSpan,
-                      tokens: Token[],
-                      template: Template) {
-    super(project, locationSpan, tokens, template)
-  }
-
-  public getTemplateChildren (): TemplateNode[] {
-    return []
-  }
-
-}
+// export class BananaInTheBoxTemplateNode extends AttributeTemplateNode {
+//
+//   public getTemplateChildren (): TemplateNode[] {
+//     return []
+//   }
+//
+// }
+//
+// export class ReferenceTemplateNode extends AttributeTemplateNode {
+//
+//   public getTemplateChildren (): TemplateNode[] {
+//     return []
+//   }
+//
+// }
 
 // endregion Attributes (text attributes, inputs, outputs)
 
-export class CommentTemplateNode extends TemplateNode {
-
-  public constructor (project: Project,
-                      locationSpan: LocationSpan,
-                      tokens: Token[],
-                      template: Template,
-                      protected value: string | null) {
-    super(project, locationSpan, tokens, template)
-  }
-
-  public getValue (): string | null {
-    return this.value
-  }
-
-  public getTemplateChildren (): TemplateNode[] {
-    return []
-  }
-
-}
-
-export abstract class BindingTargetTemplateNode extends TemplateNode {
-}
-
-export class PropertyBindingTargetTemplateNode extends BindingTargetTemplateNode {
-
-  public constructor (project: Project,
-                      locationSpan: LocationSpan,
-                      tokens: Token[],
-                      template: Template,
-                      protected text: string,
-                      protected name: string) {
-    super(project, locationSpan, tokens, template)
-  }
-
-  public getText (): string {
-    return this.text
-  }
-
-  public getName (): string {
-    return this.name
-  }
-
-  // public isBare (): boolean {
-  //
-  // }
-  //
-  // public isWithBrackets (): boolean {
-  //
-  // }
-  //
-  // public isWithBindPrefix (): boolean {
-  //
-  // }
-
-  public getTemplateChildren (): TemplateNode[] {
-    return []
-  }
-
-}
-
-export class EventBindingTargetTemplateNode extends BindingTargetTemplateNode {
-
-  public constructor (project: Project,
-                      locationSpan: LocationSpan,
-                      tokens: Token[],
-                      template: Template,
-                      protected text: string,
-                      protected name: string) {
-    super(project, locationSpan, tokens, template)
-  }
-
-  public getText (): string {
-    return this.text
-  }
-
-  public getName (): string {
-    return this.name
-  }
-
-  public getTemplateChildren (): TemplateNode[] {
-    return []
-  }
-
-}
-
-export class ExpressionTemplateNode extends TemplateNode {
-
-  public getTemplateChildren (): TemplateNode[] {
-    return []
-  }
-
-}
-
-export class StatementTemplateNode extends TemplateNode {
-
-  public getTemplateChildren (): TemplateNode[] {
-    return []
-  }
-
-}
+// export class CommentTemplateNode extends TemplateNode {
+//
+//   private getRawTextToken (): Token<TokenType.RAW_TEXT> {
+//     return this.getFirstTokenOfTypeOrThrow(TokenType.RAW_TEXT)
+//   }
+//
+//   public getValue (): string {
+//     return this.getRawTextToken().toString()
+//   }
+//
+//   public getTemplateChildren (): TemplateNode[] {
+//     return []
+//   }
+//
+// }
+//
+// export abstract class BindingTargetTemplateNode extends TemplateNode {
+// }
+//
+// export class PropertyBindingTargetTemplateNode extends BindingTargetTemplateNode {
+//
+//   public constructor (project: Project,
+//                       tokens: Token[],
+//                       template: Template,
+//                       protected text: string,
+//                       protected name: string) {
+//     super(project, tokens, template)
+//   }
+//
+//   public getText (): string {
+//     return this.text
+//   }
+//
+//   public getName (): string {
+//     return this.name
+//   }
+//
+//   // public isBare (): boolean {
+//   //
+//   // }
+//   //
+//   // public isWithBrackets (): boolean {
+//   //
+//   // }
+//   //
+//   // public isWithBindPrefix (): boolean {
+//   //
+//   // }
+//
+//   public getTemplateChildren (): TemplateNode[] {
+//     return []
+//   }
+//
+// }
+//
+// export class EventBindingTargetTemplateNode extends BindingTargetTemplateNode {
+//
+//   public constructor (project: Project,
+//                       tokens: Token[],
+//                       template: Template,
+//                       protected text: string,
+//                       protected name: string) {
+//     super(project, tokens, template)
+//   }
+//
+//   public getText (): string {
+//     return this.text
+//   }
+//
+//   public getName (): string {
+//     return this.name
+//   }
+//
+//   public getTemplateChildren (): TemplateNode[] {
+//     return []
+//   }
+//
+// }
+//
+// export class ExpressionTemplateNode extends TemplateNode {
+//
+//   public getTemplateChildren (): TemplateNode[] {
+//     return []
+//   }
+//
+// }
+//
+// export class StatementTemplateNode extends TemplateNode {
+//
+//   public getTemplateChildren (): TemplateNode[] {
+//     return []
+//   }
+//
+// }

@@ -2,6 +2,7 @@ import * as tsm from 'ts-morph'
 import { SimpleCache } from '../../utils/manager'
 import * as path from 'path'
 import * as fs from 'fs'
+import { getFirstElementOrThrow, getLastElementOrThrow } from '../../utils'
 
 function isNewLine (char: string) {
   if (char.length !== 1) {
@@ -84,8 +85,10 @@ export interface PointerVariations {
 }
 
 export const DEFAULT_POINTER_VARIATIONS: PointerVariations = {
-  oneBased: false
+  oneBased: false,
 }
+
+type EventListenerOffset = (offset: number) => void
 
 export class LocationPointer {
 
@@ -125,6 +128,17 @@ export class LocationPointer {
   public setOffset (offset: number): this {
     this.zeroBasedOffset = offset
     this.invalidateLineAndCol()
+    this.eventListeners.forEach(listener => listener(this.zeroBasedOffset))
+    return this
+  }
+
+  private eventListeners: EventListenerOffset[] = []
+
+  /**
+   * @todo Check for memory leaks
+   */
+  public addEventListener (fn: EventListenerOffset): this {
+    this.eventListeners.push(fn)
     return this
   }
 
@@ -134,6 +148,10 @@ export class LocationPointer {
   }
 
   public clone (): LocationPointer {
+    if (this.eventListeners.length > 0) {
+      // TODO
+      throw new Error(`TODO: Cannot clone a LocationPointer which has event listeners. Needs to be implemented.`)
+    }
     return new LocationPointer(this.locationFile, this.zeroBasedOffset)
   }
 
@@ -273,16 +291,25 @@ export class LocationSpan {
       if (file != referenceFile) {
         throw new Error(`Cannot create a LocationSpan from several LocationSpans across different files (${referenceFile.getUri()}, ${file.getUri()}).`)
       }
-      const min = locationSpan[minStartIndex].getStart().getOffset()
-      const max = locationSpan[maxEndIndex].getEnd().getOffset()
-      const start = span.getStart().getOffset()
-      const end = span.getEnd().getOffset()
+      const min = locationSpan[minStartIndex].getStartOffset()
+      const max = locationSpan[maxEndIndex].getEndOffset()
+      const start = span.getStartOffset()
+      const end = span.getEndOffset()
       if (start < min) minStartIndex = index
       if (end > max) maxEndIndex = index
     }
-    const start = locationSpan[minStartIndex].getStart().getOffset()
-    const end = locationSpan[maxEndIndex].getEnd().getOffset()
+    const start = locationSpan[minStartIndex].getStartOffset()
+    const end = locationSpan[maxEndIndex].getEndOffset()
     return LocationSpan.FromFile(referenceFile, start, end)
+  }
+
+  public static ReactiveFromSeveralOrdered (...locationSpans: LocationSpan[]): LocationSpan {
+    const result = LocationSpan.FromSeveral(...locationSpans)
+    const first = getFirstElementOrThrow(locationSpans)
+    const last = getLastElementOrThrow(locationSpans)
+    first.getStart().addEventListener(offset => result.setStartOffset(offset))
+    last.getEnd().addEventListener(offset => result.setEndOffset(offset))
+    return result
   }
 
   public constructor (
@@ -297,6 +324,14 @@ export class LocationSpan {
 
   public getEnd (): LocationPointer {
     return this.end
+  }
+
+  public getStartOffset (vars: PointerVariations = DEFAULT_POINTER_VARIATIONS): number {
+    return this.getStart().getOffset(vars)
+  }
+
+  public getEndOffset (vars: PointerVariations = DEFAULT_POINTER_VARIATIONS): number {
+    return this.getEnd().getOffset(vars)
   }
 
   public setStart (newStart: LocationPointer): this {
@@ -334,8 +369,8 @@ export class LocationSpan {
 
   public getText (): string {
     const file = this.getFileContent()
-    const start = this.getStart().getOffset()
-    const end = this.getEnd().getOffset()
+    const start = this.getStartOffset()
+    const end = this.getEndOffset()
     return file.slice(start, end)
   }
 
@@ -369,7 +404,7 @@ export class LocationSpan {
   }
 
   public replaceText (newText: string): void {
-    const start = this.getStart().getOffset()
+    const start = this.getStartOffset()
     this.getFile().replaceText(start, this.getLength(), newText)
     this.changeLengthTo(newText.length)
   }

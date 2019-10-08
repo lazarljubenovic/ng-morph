@@ -3,6 +3,7 @@ import * as tsm from 'ts-morph'
 import { resolveTo } from './resolve-to'
 
 export type Ctor<T> = (new (...args: any[]) => T) | (Function & { prototype: T })
+export type StrictCtor<T> = (new (...args: any[]) => T)
 
 export type Predicate<T> = (t: T) => boolean
 

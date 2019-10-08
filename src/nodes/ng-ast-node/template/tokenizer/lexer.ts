@@ -45,7 +45,11 @@ export function getTokenTypeName (tokenType: TokenType | undefined | null): stri
   return TokenType[tokenType]
 }
 
+let id = 0
+
 export class Token<Type extends TokenType = any> {
+
+  private id = id++
 
   private _isForgotten: boolean = false
 
@@ -65,7 +69,7 @@ export class Token<Type extends TokenType = any> {
   }
 
   public printForDebug (): string {
-    return `Token (${this.typeName}) { "${this}", ${this.locationSpan.printMedium() }`
+    return `Token ${this.id.toString(10).padStart(3)} (${this.typeName.padStart(20)}) :: "${this}", ${this.locationSpan.printMedium()}`
   }
 
   /**
@@ -659,11 +663,12 @@ class _Tokenizer {
   }
 
   private _consumeTagOpenEnd () {
-    const tokenType =
-      this._attemptCharCode(chars.$SLASH) ? TokenType.TAG_OPEN_END_VOID : TokenType.TAG_OPEN_END
+    const tokenType = this._attemptCharCode(chars.$SLASH)
+      ? TokenType.TAG_OPEN_END_VOID
+      : TokenType.TAG_OPEN_END
     this._beginToken(tokenType)
     this._requireCharCode(chars.$GT)
-    this._endToken([])
+    this._endToken([tokenType == TokenType.TAG_OPEN_END ? '>' : '/>'])
   }
 
   private _consumeTagClose (start: CharacterCursor) {

@@ -1,10 +1,10 @@
 import * as tsm from 'ts-morph'
-import { Project } from '../src'
-import {
-  isElement,
-  isElementWithTagName,
-  isTextAttributeWithName,
-} from '../src/nodes/ng-ast-node/template/template-nodes-type-guards'
+import { insertion, Project } from '../src'
+import { isElement, isElementWithTagName } from '../src/nodes/ng-ast-node/template/template-nodes-type-guards'
+import { TemplateNodeType } from '../src/nodes/ng-ast-node/template/template-nodes-structs'
+import { ElementTemplateNode, NgContainerTemplateNode } from '../src/nodes/ng-ast-node/template/template-nodes'
+
+Error.stackTraceLimit = Infinity
 
 const tsmProject = new tsm.Project({
   tsConfigFilePath: '/home/lazar/vertex/tsconfig.json',
@@ -15,8 +15,12 @@ const project = new Project(tsmProject)
 const casinosComponent = project.getComponentByClassNameIfSingleOrThrow('CasinosComponent')
 const template = casinosComponent.getTemplate()
 
-const elements = template.getTemplateNodes(isElement)
-console.log(`There are ${elements.length} elements in ${casinosComponent.getSelectorNameOrThrow()}'s template.`)
+const el = template.getFirstTemplateNodeOrThrow(isElementWithTagName('vtx-chip-button-group'))
+el.changeTagName('new-tag-name-is-here-and-its-very-long')
+el.insert(insertion.firstChild(), { type: TemplateNodeType.Element, tagName: 'a' })
+const newEl = el.getFirstChildIfOrThrow(isElementWithTagName('a'), `Element "a" not the first child.`)
+newEl.insert(insertion.lastChild(), { type: TemplateNodeType.Text, text: `opala` })
+console.log(template.getText())
 
 // console.log()
 // console.log(`=== BEFORE ===`)

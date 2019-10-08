@@ -270,6 +270,7 @@ class _TreeBuilder {
       }
     } else if (this._peek.type === lex.TokenType.TAG_OPEN_END) {
       closingTagToken = this._advance()
+      tokens.push(closingTagToken)
       selfClosing = false
     }
     const end = this._peek.locationSpan.getStart()

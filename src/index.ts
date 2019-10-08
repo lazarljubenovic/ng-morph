@@ -7,7 +7,9 @@ if (!semver.satisfies(version, '>=12')) {
 }
 
 import { Project } from './project'
+import * as insertion from './nodes/ng-ast-node/template/template-node-insertion-rules'
 
 export {
   Project,
+  insertion,
 }
