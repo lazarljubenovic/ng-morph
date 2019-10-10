@@ -17,7 +17,8 @@ import {
   TapFn,
   throwIfUndefined,
 } from '../../../utils'
-import { getTokenTypeName, Token, TokenType } from './tokenizer/lexer'
+import { getTokenTypeName, isTokenOfType, Token, TokenType } from './tokenizer/lexer'
+import * as tg from 'type-guards'
 
 export interface TextReplaceConfig {
   token: Token
@@ -158,17 +159,54 @@ export abstract class TemplateNode extends NgAstNode {
     this.tokens.splice(tokenIndex + 1, 0, ...newTokens)
 
     // Change tokens saved for the whole template.
-    const newText = newTokenConfigs.map(({text}) => text).join('')
+    const newText = newTokenConfigs.map(({ text }) => text).join('')
     this.getTemplate()._addTokensAfter(token, newText, ...newTokens)
   }
 
+  protected _deleteTokensInRow (tokenOrIndex: Token | number, deleteCount: number, { inclusive = false } = {}): void {
+    const index = typeof tokenOrIndex == 'number' ? tokenOrIndex : this.tokens.indexOf(tokenOrIndex)
+    const token = typeof tokenOrIndex == 'number' ? this.tokens[index] : tokenOrIndex
+
+    if (index == -1) {
+      const tokensArray = this.tokens.map(token => token.printForDebug()).join(', ')
+      const error = [
+        `Cannot delete tokens after ${token.printForDebug()}, `,
+        `because it was not found in the array ${tokensArray}.`,
+      ].join('')
+      throw new Error(error)
+    }
+
+    // Delete the local tokens.
+    // They will be marked as forgotten below.
+    this.tokens.splice(index + (inclusive ? 0 : 1), deleteCount)
+
+    // Delete tokens saved for the whole template.
+    this.getTemplate()._deleteTokens(token, { deleteCount, inclusive })
+  }
+
+  protected _deleteToken (tokenOrIndex: Token | number): void {
+    this._deleteTokensInRow(tokenOrIndex, 1, { inclusive: true })
+  }
+
+  protected _deleteTokens (tokensOrIndexes: Array<Token | number>): void {
+    tokensOrIndexes.forEach(tokenOrIndex => {
+      this._deleteToken(tokenOrIndex)
+    })
+  }
+
+  protected getTokens<T extends TokenType> (type: T): Token<T>[]
   protected getTokens<T extends Token> (guard: (token: Token) => token is T): T[]
   protected getTokens (predicate: Predicate<Token>): Token[]
   protected getTokens (): Token[]
-  protected getTokens (predicate?: Predicate<Token>): Token[] {
-    return predicate == null
-      ? this.tokens
-      : this.tokens.filter(predicate)
+  protected getTokens (predicateOrTokenType?: Predicate<Token> | TokenType): Token[] {
+    if (predicateOrTokenType == null) {
+      return this.tokens
+    } else {
+      const fn = typeof predicateOrTokenType == 'function'
+        ? predicateOrTokenType
+        : isTokenOfType(predicateOrTokenType)
+      return this.tokens.filter(fn)
+    }
   }
 
   protected getFirstTokenOfType<Type extends TokenType> (type: Type): Token<Type> | undefined {
@@ -448,6 +486,10 @@ export abstract class AttributeTemplateNode extends TemplateNode {
     return this.getFirstTokenOfType(TokenType.ATTR_VALUE)
   }
 
+  protected getQuoteTokens (): Token<TokenType.ATTR_QUOTE>[] {
+    return this.getTokens(TokenType.ATTR_QUOTE)
+  }
+
   public getAttributeNameString (): string {
     return this.getNameToken().toString()
   }
@@ -509,8 +551,73 @@ export abstract class AttributeTemplateNode extends TemplateNode {
     if (this.hasValue()) {
       this.changeAttributeValue(newValue)
     } else {
-      this.addAttributeValueOrThrowIfAlreadyExists(newValue, `This is a programming error and is likely a bug.`)
+      this.addAttributeValueOrThrowIfAlreadyExists(newValue, `This is a programming error and is likely a bug in ng-morph.`)
     }
+    return this
+  }
+
+  /**
+   * Completely remove the value of the attribute, transforming `name="key"` to `name`.
+   * If the value doesn't exist, don't do anything.
+   */
+  public deleteValueOrIgnore (): this {
+    if (!this.hasValue()) return this
+    return this.deleteValueOrThrow()
+  }
+
+  /**
+   * Completely remove the value of the attribute, transforming `name="key"` to `name`.
+   * If the value doesn't exist, throw.
+   */
+  public deleteValueOrThrow (): this {
+    if (!this.hasValue()) {
+      throw new Error(`Expected attribute's value to not exist.`)
+    }
+
+    const tokens: Token[] = [
+      this.getValueToken(),
+      ...this.getQuoteTokens(),
+    ].filter(tg.isNotNullish)
+
+    this._deleteTokens(tokens)
+
+    return this
+  }
+
+  public hasQuotes (): boolean {
+    const quoteTokens = this.getQuoteTokens()
+    if (quoteTokens.length == 2) return true
+    if (quoteTokens.length == 0) return true
+    throw new Error(`Expected exactly two or exactly zero quote tokens in ${this}.`)
+  }
+
+  /**
+   * Adds quotes around the value of the attribute, under the assumption that attribute has a value defined and
+   * that it's unquoted.
+   *
+   * @param quote - The type of quotes to use, single or double, as literal strings. Double quote by default.
+   * @param customErrMsg - Additional message to display in case of invalid operation (see "throws" section).
+   *
+   * @throws - When quotes already exist around the value, or when there's no value to wrap in quotes.
+   *
+   */
+  public addQuotesOrThrow (quote: '\'' | '"' = '"', customErrMsg?: string): this {
+    if (this.hasQuotes()) {
+      const mainErrMsg = `Tried to add quotes in the attribute ${this}, but it already has quotes.`
+      throw new Error(concatErrors(mainErrMsg, customErrMsg))
+    }
+
+    if (!this.hasValue()) {
+      const mainErrMsg = `Tried to add quotes in the attribute ${this}, but it has no value.`
+      throw new Error(concatErrors(mainErrMsg, customErrMsg))
+    }
+
+    const nameToken = this.getNameToken()
+    this._addTokensAfter(nameToken, { text: quote, type: TokenType.ATTR_QUOTE })
+
+    const valueToken = this.getValueToken()! // Tested for value above.
+    this._addTokensAfter(valueToken, { text: quote, type: TokenType.ATTR_QUOTE })
+
     return this
   }
 

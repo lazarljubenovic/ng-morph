@@ -25,15 +25,10 @@ const pageHeaderEl = template
   .getTemplateNodeIfSingleOrThrow(isElementWithTagName('vtx-page-header'))
   .changeTagName('shiny-tag')
 
-pageHeaderEl
-  .getFirstAttributeOrThrow(isTextAttributeWithName('disabled'))
-  .changeAttributeName('doesItWork')
-  .addAttributeValueOrThrowIfAlreadyExists('FUCK YES BABY')
-
-// pageHeaderEl
-//   .getDescendantOrThrow(isElementWithTagName('vtx-icon-casino'))
-//   .getFirstAttributeOrThrow(isTextAttributeWithName('size'))
-//   .changeAttributeName('NEW_ATTR_NAME')
+const iconEl = template
+  .getTemplateNodeIfSingleOrThrow(isElementWithTagName('vtx-icon-casino'))
+  .getFirstAttributeOrThrow(isTextAttributeWithName('size'))
+  .deleteValueOrThrow()
 
 console.log()
 console.log(`=== AFTER ===`)

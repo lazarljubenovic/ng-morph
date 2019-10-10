@@ -45,6 +45,12 @@ export function getTokenTypeName (tokenType: TokenType | undefined | null): stri
   return TokenType[tokenType]
 }
 
+export function isTokenOfType<T> (type: TokenType) {
+  return (token: Token): token is Token<TokenType> => {
+    return token.type == type
+  }
+}
+
 export class Token<Type extends TokenType = any> {
 
   private _isForgotten: boolean = false
