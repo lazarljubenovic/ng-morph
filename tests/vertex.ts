@@ -1,8 +1,7 @@
 import * as tsm from 'ts-morph'
 import { insertion, Project } from '../src'
-import { isElement, isElementWithTagName } from '../src/nodes/ng-ast-node/template/template-nodes-type-guards'
+import { isElementWithTagName } from '../src/nodes/ng-ast-node/template/template-nodes-type-guards'
 import { TemplateNodeType } from '../src/nodes/ng-ast-node/template/template-nodes-structs'
-import { ElementTemplateNode, NgContainerTemplateNode } from '../src/nodes/ng-ast-node/template/template-nodes'
 
 Error.stackTraceLimit = Infinity
 

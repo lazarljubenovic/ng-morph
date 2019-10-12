@@ -147,12 +147,16 @@ export class LocationPointer {
     return this.setOffset(offset)
   }
 
-  public clone (): LocationPointer {
-    if (this.eventListeners.length > 0) {
-      // TODO
-      throw new Error(`TODO: Cannot clone a LocationPointer which has event listeners. Needs to be implemented.`)
+  public clone ({
+                  doNotCloneListeners = false,
+                } = {}): LocationPointer {
+    const clone = new LocationPointer(this.locationFile, this.zeroBasedOffset)
+    if (!doNotCloneListeners && this.eventListeners.length > 0) {
+      this.eventListeners.forEach(listener => {
+        clone.addEventListener(listener)
+      })
     }
-    return new LocationPointer(this.locationFile, this.zeroBasedOffset)
+    return clone
   }
 
   public printShort (vars: PointerVariations = DEFAULT_POINTER_VARIATIONS): string {
@@ -409,9 +413,11 @@ export class LocationSpan {
     this.changeLengthTo(newText.length)
   }
 
-  public clone (): LocationSpan {
-    const start = this.getStart().clone()
-    const end = this.getEnd().clone()
+  public clone ({
+                  doNotCloneListeners = false,
+                } = {}): LocationSpan {
+    const start = this.getStart().clone({ doNotCloneListeners })
+    const end = this.getEnd().clone({ doNotCloneListeners })
     return new LocationSpan(start, end)
   }
 
