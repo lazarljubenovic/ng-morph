@@ -19,6 +19,26 @@ el.changeTagName('new-tag-name-is-here-and-its-very-long')
 el.insert(insertion.firstChild(), { type: TemplateNodeType.Element, tagName: 'a' })
 const newEl = el.getFirstChildIfOrThrow(isElementWithTagName('a'), `Element "a" not the first child.`)
 newEl.insert(insertion.lastChild(), { type: TemplateNodeType.Text, text: `opala` })
+newEl.insert(insertion.firstChild(), {
+  type: TemplateNodeType.Element,
+  tagName: 'inner',
+  children: [
+    {
+      type: TemplateNodeType.Element,
+      tagName: 'even-more-inner',
+      children: [
+        {
+          type: TemplateNodeType.Text,
+          text: 'uh...',
+        },
+      ],
+    },
+    {
+      type: TemplateNodeType.Text,
+      text: 'some trailing text after even-more-inner',
+    },
+  ],
+})
 console.log(template.getText())
 
 // console.log()

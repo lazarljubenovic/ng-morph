@@ -8,6 +8,8 @@ import {
   TextTemplateNode,
 } from './template-nodes'
 import { TokenType } from './tokenizer/lexer'
+import * as tg from 'type-guards'
+import { ValueOf } from '../../../utils'
 
 export enum TemplateNodeType {
   Root,
@@ -24,11 +26,20 @@ export type TemplateNodeType_Child =
   | TemplateNodeType.Text
   | TemplateNodeType.Interpolation
 
-export type TemplateNodeType_Parent =
-  | TemplateNodeType.Root
+export type TemplateNodeType_ParentWithoutRoot =
   | TemplateNodeType.Element
-  | TemplateNodeType.NgContainer
   | TemplateNodeType.NgTemplate
+  | TemplateNodeType.NgContainer
+
+export const isTemplateNodeTypeParentWithoutRoot = tg.isEnum<TemplateNodeType_ParentWithoutRoot>(
+  TemplateNodeType.Element,
+  TemplateNodeType.NgTemplate,
+  TemplateNodeType.NgContainer,
+)
+
+export type TemplateNodeType_Parent =
+  | TemplateNodeType_ParentWithoutRoot
+  | TemplateNodeType.Root
 
 export interface TemplateNodeTypeToTemplateNodeStructureMap {
   [TemplateNodeType.Text]: TextTemplateNodeStructure
@@ -37,13 +48,6 @@ export interface TemplateNodeTypeToTemplateNodeStructureMap {
   [TemplateNodeType.NgTemplate]: NgTemplateTemplateNodeStructure
   [TemplateNodeType.NgContainer]: NgContainerTemplateNodeStructure
 }
-
-type TemplateNodeStructure =
-  | TextTemplateNodeStructure
-  | InterpolationTemplateNodeStructure
-  | ElementTemplateNodeStructure
-  | NgTemplateTemplateNodeStructure
-  | NgContainerTemplateNodeStructure
 
 export interface TemplateNodeTypeToTemplateNodeMap {
   [TemplateNodeType.Text]: TextTemplateNode
@@ -77,9 +81,13 @@ export interface InterpolationTemplateNodeStructure extends StructureBase<Templa
   text: string
 }
 
-interface ElementLike<T extends TemplateNodeType> extends StructureBase<T> {
+export const isElementLikeStructure = (x: StructureBase<TemplateNodeType>): x is ElementLike<TemplateNodeType_ParentWithoutRoot> => {
+  return isTemplateNodeTypeParentWithoutRoot(x.type)
+}
+
+interface ElementLike<T extends TemplateNodeType_ParentWithoutRoot> extends StructureBase<T> {
   // attributes: any // TODO
-  // children: Array<ElementChildren>
+  children?: Array<ValueOf<TemplateNodeTypeToTemplateNodeStructureMap>>
 }
 
 export interface ElementTemplateNodeStructure extends ElementLike<TemplateNodeType.Element> {

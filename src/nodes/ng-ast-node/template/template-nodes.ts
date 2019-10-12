@@ -13,9 +13,9 @@ import {
   throwIfUndefined,
 } from '../../../utils'
 import { getTokenTypeName, Token, TokenType } from './tokenizer/lexer'
-import { InsertionRule } from './template-node-insertion-rules'
+import { InsertionRule, lastChild } from './template-node-insertion-rules'
 import {
-  createNode,
+  createNode, isElementLikeStructure,
   TemplateNodeTypeToTemplateNodeMap,
   TemplateNodeTypeToTemplateNodeStructureMap,
   TemplateNodeTypeWithoutRoot,
@@ -580,6 +580,15 @@ export abstract class ParentTemplateNode extends TemplateNode {
     const tokens = this._addTokensAfter(previousToken, tokenConfigs)
     const newNode = new ctor(this.project, tokens, this.getTemplate())
     insertionRule.insert(this, newNode)
+
+    if (isElementLikeStructure(structure) && structure.children != null) {
+      // Note: Circular references disallow using the guard here.
+      if (!(newNode instanceof ParentTemplateNode)) {
+        throw new Error(`Programming error. Expected the result of creating an element-like structure to be a ParentTemplateNode.`)
+      }
+      structure.children.forEach(childStructure => newNode.insert(lastChild(), childStructure))
+    }
+
     return newNode
   }
 

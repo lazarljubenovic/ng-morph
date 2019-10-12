@@ -84,3 +84,5 @@ export function getLastElementOrThrow<T> (array: T[], err?: string): T {
 }
 
 export type TapFn<T, R = void> = (element: T, index: number, array: T[]) => R
+
+export type ValueOf<T> = T[keyof T]
