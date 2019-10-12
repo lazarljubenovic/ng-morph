@@ -108,7 +108,7 @@ export class Template extends NgAstNode {
 
   /**
    * Performs a given function for each token that the template is composed of, after the given token.
-   * Either the index o the token itself can eb given. The inclusiveness of the first node is configurable.
+   * Either the index o the token itself can eb given. The inclusiveness of the asFirst node is configurable.
    *
    * @param token - Where to start from either the index of the token or the token itself.
    * @param fn - The function to perform over each token. Its arguments are the token, index and the whole array.

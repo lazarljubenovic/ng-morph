@@ -13,7 +13,6 @@ import {
   throwIfUndefined,
 } from '../../../utils'
 import { getTokenTypeName, Token, TokenType } from './tokenizer/lexer'
-import { InsertionRule, lastChild } from './template-node-insertion-rules'
 import {
   ChildTemplateNodeType,
   createNode,
@@ -23,6 +22,8 @@ import {
   TemplateNodeTypeToTemplateNodeMap,
   TemplateNodeTypeToTemplateNodeStructureMap,
 } from './template-nodes-structs'
+import { InsertionRule } from './morph/insert/type'
+import { asLastChild } from './morph/insert'
 
 /**
  * @fileOverview
@@ -468,7 +469,7 @@ export abstract class ParentTemplateNode extends TemplateNode {
     this.removeAttributesAtIndex(index, deleteCount, { doNotUnsetParent, doNotForget })
   }
 
-  public insert<TOriginType extends ParentTemplateNodeToParentTemplateNodeType<this>, TNewNodeType extends ElementLikeTemplateNodeType | ChildTemplateNodeType> (
+  public morph<TOriginType extends ParentTemplateNodeToParentTemplateNodeType<this>, TNewNodeType extends ElementLikeTemplateNodeType | ChildTemplateNodeType> (
     insertionRule: InsertionRule<TOriginType, TNewNodeType>,
     structure: TemplateNodeTypeToTemplateNodeStructureMap[TNewNodeType],
   ): TemplateNodeTypeToTemplateNodeMap[TNewNodeType] {
@@ -484,7 +485,7 @@ export abstract class ParentTemplateNode extends TemplateNode {
       if (!(newNode instanceof ParentTemplateNode)) {
         throw new Error(`Programming error. Expected the result of creating an element-like structure to be a ParentTemplateNode.`)
       }
-      structure.children.forEach(childStructure => newNode.insert(lastChild(), childStructure))
+      structure.children.forEach(childStructure => newNode.morph(asLastChild(), childStructure))
     }
 
     return newNode

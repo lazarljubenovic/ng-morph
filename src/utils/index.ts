@@ -86,3 +86,18 @@ export function getLastElementOrThrow<T> (array: T[], err?: string): T {
 export type TapFn<T, R = void> = (element: T, index: number, array: T[]) => R
 
 export type ValueOf<T> = T[keyof T]
+
+export function isBetweenInclusive (lo: number, hi: number) {
+  return (value: number) => {
+    if (value < lo) return false
+    if (value > hi) return false
+    return true
+  }
+}
+
+export function isValidIndex (array: Array<any>, index: number): boolean {
+  const lo = 0
+  const hi = array.length - 1
+  const predicate = isBetweenInclusive(lo, hi)
+  return predicate(index)
+}
