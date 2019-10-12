@@ -3,7 +3,7 @@ import * as tg from 'type-guards'
 
 export const is = tg.isInstanceOf(tn.TemplateNode)
 
-export const isChild = tg.isInstanceOf(tn.ChildTemplateNode)
+export const isChild = tg.isInstanceOf(tn.TextLikeTemplateNode)
 export const isText = tg.isInstanceOf(tn.TextTemplateNode)
 export const isInterpolation = tg.isInstanceOf(tn.InterpolationTemplateNode)
 
@@ -13,7 +13,7 @@ export const isNgTemplate = tg.isInstanceOf(tn.NgTemplateTemplateNode)
 export const isNgContainer = tg.isInstanceOf(tn.NgContainerTemplateNode)
 // export const isComment = tg.isInstanceOf(tn.CommentTemplateNode)
 
-export const isAttribute = tg.isInstanceOf(tn.AttributeTemplateNode)
+export const isAttribute = tg.isInstanceOf(tn.AttributeLikeTemplateNode)
 export const isTextAttribute = tg.isInstanceOf(tn.TextAttributeTemplateNode)
 export const isBoundAttribute = tg.isInstanceOf(tn.BoundAttributeTemplateNode)
 export const isBoundEvent = tg.isInstanceOf(tn.BoundEventTemplateNode)

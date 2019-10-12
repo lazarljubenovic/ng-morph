@@ -2,6 +2,11 @@ import * as tsm from 'ts-morph'
 import { insertion, Project } from '../src'
 import { isElementWithTagName } from '../src/nodes/ng-ast-node/template/template-nodes-type-guards'
 import { TemplateNodeType } from '../src/nodes/ng-ast-node/template/template-nodes-structs'
+import {
+  ElementTemplateNode,
+  TextAttributeTemplateNode,
+  TextTemplateNode,
+} from '../src/nodes/ng-ast-node/template/template-nodes'
 
 Error.stackTraceLimit = Infinity
 
@@ -39,6 +44,9 @@ newEl.insert(insertion.firstChild(), {
     },
   ],
 })
+const spinner = template.getFirstTemplateNodeOrThrow(isElementWithTagName('vtx-spinner'))
+spinner.insert(insertion.firstChild(), { type: TemplateNodeType.Text, text: 'text' })
+spinner.insert(insertion.firstAttribute(), { type: TemplateNodeType.TextAttribute, name: 'key', value: 'value' })
 console.log(template.getText())
 
 // console.log()

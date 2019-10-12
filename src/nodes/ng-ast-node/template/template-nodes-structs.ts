@@ -1,10 +1,16 @@
 import {
+  BoundAttributeTemplateNode,
+  BoundEventTemplateNode,
   ElementTemplateNode,
   InterpolationTemplateNode,
   NewTokenConfig,
   NgContainerTemplateNode,
   NgTemplateTemplateNode,
+  ParentTemplateNode,
+  RootTemplateNode,
+  TemplateNode,
   TemplateNodeConstructor,
+  TextAttributeTemplateNode,
   TextTemplateNode,
 } from './template-nodes'
 import { TokenType } from './tokenizer/lexer'
@@ -18,44 +24,97 @@ export enum TemplateNodeType {
   Element,
   NgTemplate,
   NgContainer,
+  TextAttribute,
+  BoundAttribute,
+  BoundEvent,
 }
 
 export type TemplateNodeTypeWithoutRoot = Exclude<TemplateNodeType, TemplateNodeType.Root>
 
-export type TemplateNodeType_Child =
-  | TemplateNodeType.Text
-  | TemplateNodeType.Interpolation
+export type TemplateNodeTypeWithoutRootWithoutAttributes = Exclude<TemplateNodeTypeWithoutRoot, AttributeLikeTemplateNodeType>
 
-export type TemplateNodeType_ParentWithoutRoot =
+export type ElementLikeTemplateNodeType =
   | TemplateNodeType.Element
   | TemplateNodeType.NgTemplate
   | TemplateNodeType.NgContainer
 
-export const isTemplateNodeTypeParentWithoutRoot = tg.isEnum<TemplateNodeType_ParentWithoutRoot>(
+export type ParentTemplateNodeType =
+  | TemplateNodeType.Root
+  | ElementLikeTemplateNodeType
+
+export type TextLikeTemplateNodeType =
+  | TemplateNodeType.Text
+  | TemplateNodeType.Interpolation
+
+export type AttributeLikeTemplateNodeType =
+  | TemplateNodeType.TextAttribute
+  | TemplateNodeType.BoundAttribute
+  | TemplateNodeType.BoundEvent
+
+export type ChildTemplateNodeType =
+  | TextLikeTemplateNodeType
+  | AttributeLikeTemplateNodeType
+
+export const isElementLikeTemplateNodeType = tg.isEnum<ElementLikeTemplateNodeType>(
   TemplateNodeType.Element,
   TemplateNodeType.NgTemplate,
   TemplateNodeType.NgContainer,
 )
 
-export type TemplateNodeType_Parent =
-  | TemplateNodeType_ParentWithoutRoot
-  | TemplateNodeType.Root
+export const isAttributeLikeTemplateNodeType = tg.isEnum<AttributeLikeTemplateNodeType>(
+  TemplateNodeType.TextAttribute,
+  TemplateNodeType.BoundAttribute,
+  TemplateNodeType.BoundEvent,
+)
+
+const isStructure = <T extends TemplateNodeTypeWithoutRoot> (guard: (type: TemplateNodeType) => type is T) => {
+  return (structure: StructureBase<TemplateNodeType>): structure is TemplateNodeTypeToTemplateNodeStructureMap[T] => {
+    return guard(structure.type)
+  }
+}
+
+export const isElementLikeStructure = isStructure(isElementLikeTemplateNodeType)
+export const isAttributeLikeStructure = isStructure(isAttributeLikeTemplateNodeType)
 
 export interface TemplateNodeTypeToTemplateNodeStructureMap {
+  [TemplateNodeType.Root]: never
   [TemplateNodeType.Text]: TextTemplateNodeStructure
   [TemplateNodeType.Interpolation]: InterpolationTemplateNodeStructure
   [TemplateNodeType.Element]: ElementTemplateNodeStructure
   [TemplateNodeType.NgTemplate]: NgTemplateTemplateNodeStructure
   [TemplateNodeType.NgContainer]: NgContainerTemplateNodeStructure
+  [TemplateNodeType.TextAttribute]: TextAttributeTemplateNodeStructure
+  [TemplateNodeType.BoundAttribute]: BoundAttributeTemplateNodeStructure
+  [TemplateNodeType.BoundEvent]: BoundEventTemplateNodeStructure
 }
 
+type TemplateNodeStructure = ValueOf<TemplateNodeTypeToTemplateNodeStructureMap>
+
 export interface TemplateNodeTypeToTemplateNodeMap {
+  [TemplateNodeType.Root]: RootTemplateNode
   [TemplateNodeType.Text]: TextTemplateNode
   [TemplateNodeType.Interpolation]: InterpolationTemplateNode
   [TemplateNodeType.Element]: ElementTemplateNode
   [TemplateNodeType.NgTemplate]: NgTemplateTemplateNode
   [TemplateNodeType.NgContainer]: NgContainerTemplateNode
+  [TemplateNodeType.TextAttribute]: TextAttributeTemplateNode
+  [TemplateNodeType.BoundAttribute]: BoundAttributeTemplateNode
+  [TemplateNodeType.BoundEvent]: BoundEventTemplateNode
 }
+
+type TemplateNodeTypeToTemplateNodeMapGeneric<T extends TemplateNodeType> = TemplateNodeTypeToTemplateNodeMap[T]
+
+export type TemplateNodeToTemplateNodeType<T extends TemplateNode> = T extends TemplateNodeTypeToTemplateNodeMapGeneric<infer V> ? V : never
+export type ParentTemplateNodeToParentTemplateNodeType<T extends ParentTemplateNode> =
+  T extends RootTemplateNode
+    ? TemplateNodeType.Root
+    : T extends ElementTemplateNode
+      ? TemplateNodeType.Element
+      : T extends NgTemplateTemplateNode
+        ? TemplateNodeType.NgTemplate
+        : T extends NgContainerTemplateNode
+          ? TemplateNodeType.NgContainer
+          : never
 
 interface CreateResult<T extends TemplateNodeTypeWithoutRoot> {
   ctor: TemplateNodeConstructor<TemplateNodeTypeToTemplateNodeMap[T]>,
@@ -81,13 +140,9 @@ export interface InterpolationTemplateNodeStructure extends StructureBase<Templa
   text: string
 }
 
-export const isElementLikeStructure = (x: StructureBase<TemplateNodeType>): x is ElementLike<TemplateNodeType_ParentWithoutRoot> => {
-  return isTemplateNodeTypeParentWithoutRoot(x.type)
-}
-
-interface ElementLike<T extends TemplateNodeType_ParentWithoutRoot> extends StructureBase<T> {
+interface ElementLike<T extends ElementLikeTemplateNodeType> extends StructureBase<T> {
   // attributes: any // TODO
-  children?: Array<ValueOf<TemplateNodeTypeToTemplateNodeStructureMap>>
+  children?: Array<TemplateNodeTypeToTemplateNodeStructureMap[TemplateNodeTypeWithoutRootWithoutAttributes]>
 }
 
 export interface ElementTemplateNodeStructure extends ElementLike<TemplateNodeType.Element> {
@@ -98,6 +153,24 @@ export interface NgTemplateTemplateNodeStructure extends ElementLike<TemplateNod
 }
 
 export interface NgContainerTemplateNodeStructure extends ElementLike<TemplateNodeType.NgContainer> {
+}
+
+export interface TextAttributeTemplateNodeStructure extends StructureBase<TemplateNodeType.TextAttribute> {
+  name: string
+  value: string | undefined
+  withoutQuotes?: boolean
+}
+
+export interface BoundAttributeTemplateNodeStructure extends StructureBase<TemplateNodeType.BoundAttribute> {
+  name: string
+  value: string // TODO: inner AST
+  usePrefix?: boolean
+}
+
+export interface BoundEventTemplateNodeStructure extends StructureBase<TemplateNodeType.BoundEvent> {
+  name: string
+  value: string // TODO: inner AST
+  usePrefix?: boolean
 }
 
 // const createText: Create<TemplateNodeType.Text> =
@@ -111,35 +184,68 @@ const createElementLikeTokenConfigs = (tagName: string): NewTokenConfig[] => {
 }
 
 const templateNodeTypeToCreateMap: { [T in TemplateNodeTypeWithoutRoot]: Create<T> } = {
-  [TemplateNodeType.Text]: (structure) => ({
+  [TemplateNodeType.Text]: structure => ({
     ctor: TextTemplateNode,
     tokenConfigs: [
       { type: TokenType.TEXT, text: structure.text },
     ],
   }),
-  [TemplateNodeType.Interpolation]: (structure) => ({
+  [TemplateNodeType.Interpolation]: structure => ({
     ctor: InterpolationTemplateNode,
     tokenConfigs: [
       { type: TokenType.TEXT, text: structure.text },
     ],
   }),
-  [TemplateNodeType.Element]: (structure) => ({
+  [TemplateNodeType.Element]: structure => ({
     ctor: ElementTemplateNode,
     tokenConfigs: createElementLikeTokenConfigs(structure.tagName),
   }),
-  [TemplateNodeType.NgTemplate]: (structure) => ({
+  [TemplateNodeType.NgTemplate]: structure => ({
     ctor: NgTemplateTemplateNode,
     tokenConfigs: createElementLikeTokenConfigs('ng-template'),
   }),
-  [TemplateNodeType.NgContainer]: (structure) => ({
+  [TemplateNodeType.NgContainer]: structure => ({
     ctor: NgContainerTemplateNode,
     tokenConfigs: createElementLikeTokenConfigs('ng-container'),
+  }),
+  [TemplateNodeType.TextAttribute]: structure => ({
+    ctor: TextAttributeTemplateNode,
+    tokenConfigs: [
+      { type: TokenType.TRIVIA, text: ' ' },
+      { type: TokenType.ATTR_NAME, text: structure.name },
+      { type: TokenType.ATTR_EQUAL, text: '=' },
+      !structure.withoutQuotes ? { type: TokenType.ATTR_QUOTE, text: '"' } : null,
+      structure.value != null ? { type: TokenType.ATTR_VALUE, text: structure.value } : null,
+      !structure.withoutQuotes ? { type: TokenType.ATTR_QUOTE, text: '"' } : null,
+    ].filter(tg.isNullish),
+  }),
+  [TemplateNodeType.BoundAttribute]: structure => ({
+    ctor: BoundAttributeTemplateNode,
+    tokenConfigs: [
+      { type: TokenType.TRIVIA, text: ' ' },
+      { type: TokenType.ATTR_NAME, text: structure.usePrefix ? `bind-${structure.name}` : `[${structure.name}]` },
+      { type: TokenType.ATTR_EQUAL, text: '=' },
+      { type: TokenType.ATTR_QUOTE, text: '"' },
+      { type: TokenType.ATTR_VALUE, text: structure.value },
+      { type: TokenType.ATTR_QUOTE, text: '"' },
+    ],
+  }),
+  [TemplateNodeType.BoundEvent]: structure => ({
+    ctor: BoundEventTemplateNode,
+    tokenConfigs: [
+      { type: TokenType.TRIVIA, text: ' ' },
+      { type: TokenType.ATTR_NAME, text: structure.usePrefix ? `on-${structure.name}` : `(${structure.name})` },
+      { type: TokenType.ATTR_EQUAL, text: '=' },
+      { type: TokenType.ATTR_QUOTE, text: '"' },
+      { type: TokenType.ATTR_VALUE, text: structure.value },
+      { type: TokenType.ATTR_QUOTE, text: '"' },
+    ],
   }),
 }
 
 export const createNode = <T extends TemplateNodeTypeWithoutRoot> (
   structure: TemplateNodeTypeToTemplateNodeStructureMap[T],
 ): CreateResult<T> => {
-  const fn: Create<T> = templateNodeTypeToCreateMap[structure.type] as any // todo oneof
+  const fn = templateNodeTypeToCreateMap[structure.type] as any as Create<T> // sigh
   return fn(structure)
 }

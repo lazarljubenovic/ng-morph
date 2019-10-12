@@ -1,34 +1,44 @@
-import { ParentTemplateNode, RootTemplateNode, TemplateNode } from './template-nodes'
+import {
+  AttributeLikeTemplateNode,
+  ElementLikeTemplateNode,
+  ParentTemplateNode,
+  TextLikeTemplateNode,
+} from './template-nodes'
 import { Token } from './tokenizer/lexer'
+import {
+  AttributeLikeTemplateNodeType,
+  ChildTemplateNodeType,
+  ElementLikeTemplateNodeType,
+  ParentTemplateNodeType, TemplateNodeTypeToTemplateNodeMap,
+  TextLikeTemplateNodeType,
+} from './template-nodes-structs'
 
 interface InsertionInfo {
   previousToken: Token
 }
 
-type NewNode = Exclude<TemplateNode, RootTemplateNode>
+export interface InsertionRule<TOriginType extends ParentTemplateNodeType, TNewNodeType extends ElementLikeTemplateNodeType | ChildTemplateNodeType> {
 
-export interface InsertionRule<TOrigin extends TemplateNode, TNewNode extends NewNode> {
+  getInfo (origin: TemplateNodeTypeToTemplateNodeMap[TOriginType]): InsertionInfo
 
-  getInfo (origin: TOrigin): InsertionInfo
-
-  insert (origin: TOrigin, newNode: TNewNode): void
+  insert (origin: TemplateNodeTypeToTemplateNodeMap[TOriginType], newNode: TemplateNodeTypeToTemplateNodeMap[TNewNodeType]): void
 
 }
 
-export function firstChild<TOrigin extends ParentTemplateNode, TNewNode extends NewNode> (): InsertionRule<TOrigin, TNewNode> {
+export function firstChild<TOriginType extends ParentTemplateNodeType, TNewNodeType extends ElementLikeTemplateNodeType | TextLikeTemplateNodeType> (): InsertionRule<TOriginType, TNewNodeType> {
   return {
-    getInfo (origin: TOrigin): InsertionInfo {
+    getInfo (origin) {
       return { previousToken: origin.getTagOpenEndToken() }
     },
-    insert (origin: TOrigin, newNode: TNewNode) {
+    insert (origin, newNode) {
       origin.addChildrenAtIndex([newNode], 0)
     },
   }
 }
 
-export function lastChild<TOrigin extends ParentTemplateNode, TNewNode extends NewNode> (): InsertionRule<TOrigin, TNewNode> {
+export function lastChild<TOriginType extends ParentTemplateNodeType, TNewNodeType extends ElementLikeTemplateNodeType | TextLikeTemplateNodeType> (): InsertionRule<TOriginType, TNewNodeType> {
   return {
-    getInfo (origin: TOrigin): InsertionInfo {
+    getInfo (origin) {
       const children = origin.getChildren()
       const childrenCount = children.length
       if (childrenCount > 0) {
@@ -40,10 +50,21 @@ export function lastChild<TOrigin extends ParentTemplateNode, TNewNode extends N
         return { previousToken: tagOpenEndToken }
       }
     },
-    insert (origin: TOrigin, newNode: TNewNode) {
+    insert (origin, newNode) {
       const children = origin.getChildren()
       const childrenCount = children.length
       origin.addChildrenAtIndex([newNode], childrenCount)
+    },
+  }
+}
+
+export function firstAttribute<TOriginType extends ParentTemplateNodeType, TNewNodeType extends AttributeLikeTemplateNodeType> (): InsertionRule<TOriginType, TNewNodeType> {
+  return {
+    getInfo (origin) {
+      return { previousToken: origin.getTagOpenStartToken() }
+    },
+    insert: (origin, newNode) => {
+      origin.addAttributesAtIndex([newNode], 0)
     },
   }
 }

@@ -12,8 +12,7 @@ import {
 } from './template-nodes'
 import * as tg from 'type-guards'
 import { Template, TemplateConfig } from './template'
-import { Attribute, Comment, Element, Node, Text } from './tokenizer/ast'
-import { Ctor, StrictCtor } from '../../../utils'
+import { Attribute, Element, Node, Text } from './tokenizer/ast'
 
 const NG_CONTAINER_TAG_NAME = 'ng-container'
 const NG_TEMPLATE_TAG_NAME = 'ng-template'
@@ -40,7 +39,7 @@ export function fromElement (project: Project,
       ? NgContainerTemplateNode
       : ElementTemplateNode
   const result = new constructor(project, tokens, template)
-  result._setChildren(children)
+  result.addChildrenAtIndex(children, 0)
   result._setAttributes(allAttributes)
   return result
 }

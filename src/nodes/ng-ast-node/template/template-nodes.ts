@@ -15,10 +15,18 @@ import {
 import { getTokenTypeName, Token, TokenType } from './tokenizer/lexer'
 import { InsertionRule, lastChild } from './template-node-insertion-rules'
 import {
-  createNode, isElementLikeStructure,
+  AttributeLikeTemplateNodeType, ChildTemplateNodeType,
+  createNode,
+  ElementLikeTemplateNodeType,
+  isElementLikeStructure,
+  ParentTemplateNodeToParentTemplateNodeType,
+  ParentTemplateNodeType,
+  TemplateNodeToTemplateNodeType,
   TemplateNodeTypeToTemplateNodeMap,
   TemplateNodeTypeToTemplateNodeStructureMap,
   TemplateNodeTypeWithoutRoot,
+  TemplateNodeTypeWithoutRootWithoutAttributes,
+  TextLikeTemplateNodeType,
 } from './template-nodes-structs'
 
 /**
@@ -315,125 +323,37 @@ export abstract class TemplateNode extends NgAstNode {
 
 }
 
-// region Text and interpolation
-
-export abstract class ChildTemplateNode extends TemplateNode {
-}
-
-export class TextTemplateNode extends ChildTemplateNode {
-
-  protected getTextToken (): Token<TokenType.TEXT> {
-    return this.getFirstTokenOfTypeOrThrow(TokenType.TEXT)
-  }
-
-  public getText (): string {
-    return this.getTextToken().toString()
-  }
-
-  public getChildren (): never[] {
-    return []
-  }
-
-}
-
 /**
- * Represents an interpolation node in the template.
- *
- * @example
- * text {{ interpolated.expression }} more text
- *
- * @todo Expose the inner structure of the expression instead of just a string.
+ * Represents nodes which can be parents of other nodes, in the literal XML-ish sense.
+ * This includes the special "root" node, which is not visible in the file but is logically
+ * present as an umbrella which holds the forest of root-level nodes of the template.
  */
-export class InterpolationTemplateNode extends ChildTemplateNode {
-
-  public getTextToken () {
-    return this.getFirstTokenOfTypeOrThrow(TokenType.TEXT)
-  }
-
-  public getText (): string {
-    return this.getTextToken().toString()
-  }
-
-  public getChildren (): never[] {
-    return []
-  }
-
-  /**
-   * Changes the text within interpolation. Causes re-parsig of the inner AST of the expression,
-   * so these nodes will be forgotten. Easiest to write quickly, but the slowest method for
-   * changing the interpolated expression. Prefer navigating the inner AST over using this method.
-   *
-   * @param newText - The text that will replace the old text.
-   *
-   * @example
-   * interpolationNode.changeText('newText')
-   *
-   * @todo This needs to cause re-parse of the inner AST.
-   */
-  public changeText (newText: string): this {
-    this._replaceTextByTokens([
-      { token: this.getTextToken(), newText },
-    ])
-    return this
-  }
-
-  /**
-   * Changes the whitespace around the expression so that each side has the given number of
-   * whitespace.
-   *
-   * When zero is given as the argument, it acts the same as {@link trimText}.
-   * When one is given as the argument, itacts the same as {@link padText}.
-   *
-   * @param padding - How many space characters should be placed around the string.
-   *
-   */
-  public setTextPadding (padding: number): this {
-    const trimmedText = this.getText().trim()
-    const length = trimmedText.length
-    const newText = trimmedText
-      .padStart(length + padding)
-      .padEnd(length + 2 * padding)
-    this.changeText(newText)
-    return this
-  }
-
-  /**
-   * Removes any space inside the interpolation brackets.
-   *
-   * @see setTextPadding
-   */
-  public trimText (): this {
-    return this.setTextPadding(0)
-  }
-
-  /**
-   * Formats interpolation so exactly one space character is around each side of the expression.
-   *
-   * @see setTextPadding
-   */
-  public padText (): this {
-    return this.setTextPadding(1)
-  }
-
-}
-
-// endregion Text and interpolation
-
-// region Elements, ng-template and ng-container
-
 export abstract class ParentTemplateNode extends TemplateNode {
 
   protected children: Array<TemplateNode> = []
 
-  protected attributes: Array<AttributeTemplateNode> = []
+  protected attributes: Array<AttributeLikeTemplateNode> = []
 
-  /**
-   * @internal When we already have children set up properly.
-   * @param children
-   * @private
-   */
-  public _setChildren (children: Array<TemplateNode>) {
-    this.children = children
+  public getTagOpenStartToken (): Token<TokenType.TAG_OPEN_START> {
+    return this.getFirstTokenOfTypeOrThrow(TokenType.TAG_OPEN_START)
+  }
+
+  public getTagOpenEndToken (): Token<TokenType.TAG_OPEN_END> {
+    return this.getFirstTokenOfTypeOrThrow(TokenType.TAG_OPEN_END)
+  }
+
+  public getTagCloseToken (): Token<TokenType.TAG_CLOSE> {
+    return this.getFirstTokenOfTypeOrThrow(TokenType.TAG_CLOSE)
+  }
+
+  public getStartTagNameLocationSpan (): LocationSpan {
+    const token = this.getTagOpenStartToken()
+    return token.locationSpan.clone().moveStartBy(1) // leading "<"
+  }
+
+  public getEndTagNameLocationSpan (): LocationSpan {
+    const token = this.getTagCloseToken()
+    return token.locationSpan.clone().moveStartBy(2).moveEndBy(-1) // leading "</", trailing ">"
   }
 
   /**
@@ -484,7 +404,7 @@ export abstract class ParentTemplateNode extends TemplateNode {
                                   doNotUnsetParent = false,
                                   doNotForget = false,
                                 } = {}): void {
-    this.assertNotForgotten(`Cannot perform "removeChildAtIndex".`)
+    this.assertNotForgotten(`Cannot perform "removeChildrenAtIndex".`)
     if (deleteCount == 0) return
     const children = this.getChildren()
     const hi = children.length - deleteCount
@@ -497,31 +417,8 @@ export abstract class ParentTemplateNode extends TemplateNode {
 
   /**
    * @todo docs
-   *
-   * @param child
-   * @param deleteCount
-   * @param doNotUnsetParent
-   * @param doNotForget
-   * @param inclusive
-   *
-   * @see removeChildAtIndex
    */
-  public removeChildren (child: TemplateNode,
-                         deleteCount: number,
-                         {
-                           doNotUnsetParent = false,
-                           doNotForget = false,
-                         } = {}): void {
-    const children = this.getChildren()
-    const index = children.indexOf(child)
-    if (index == -1) throw new Error(`Cannot remove that child because it's not in the list of children.`)
-    this.removeChildrenAtIndex(index, deleteCount, { doNotUnsetParent, doNotForget })
-  }
-
-  /**
-   * @todo docs
-   */
-  public addAttributesAtIndex (newAttributes: Array<AttributeTemplateNode>,
+  public addAttributesAtIndex (newAttributes: Array<AttributeLikeTemplateNode>,
                                index: number,
                                {
                                  doNotSetParent = false,
@@ -559,7 +456,7 @@ export abstract class ParentTemplateNode extends TemplateNode {
   /**
    * @todo docs
    */
-  public removeAttributes (attribute: AttributeTemplateNode,
+  public removeAttributes (attribute: AttributeLikeTemplateNode,
                            deleteCount: number,
                            {
                              doNotUnsetParent = false,
@@ -571,15 +468,16 @@ export abstract class ParentTemplateNode extends TemplateNode {
     this.removeAttributesAtIndex(index, deleteCount, { doNotUnsetParent, doNotForget })
   }
 
-  public insert<T extends TemplateNodeTypeWithoutRoot> (
-    insertionRule: InsertionRule<this, TemplateNode>,
-    structure: TemplateNodeTypeToTemplateNodeStructureMap[T],
-  ): TemplateNodeTypeToTemplateNodeMap[T] {
-    const { previousToken } = insertionRule.getInfo(this)
+  public insert<TOriginType extends ParentTemplateNodeToParentTemplateNodeType<this>, TNewNodeType extends ElementLikeTemplateNodeType | ChildTemplateNodeType> (
+    insertionRule: InsertionRule<TOriginType, TNewNodeType>,
+    structure: TemplateNodeTypeToTemplateNodeStructureMap[TNewNodeType],
+  ): TemplateNodeTypeToTemplateNodeMap[TNewNodeType] {
+    const thiss = this as any as TemplateNodeTypeToTemplateNodeMap[TOriginType]
+    const { previousToken } = insertionRule.getInfo(thiss)
     const { tokenConfigs, ctor } = createNode(structure)
     const tokens = this._addTokensAfter(previousToken, tokenConfigs)
-    const newNode = new ctor(this.project, tokens, this.getTemplate())
-    insertionRule.insert(this, newNode)
+    const newNode = new ctor(this.project, tokens, this.getTemplate()) as TemplateNodeTypeToTemplateNodeMap[TNewNodeType]
+    insertionRule.insert(thiss, newNode)
 
     if (isElementLikeStructure(structure) && structure.children != null) {
       // Note: Circular references disallow using the guard here.
@@ -592,29 +490,7 @@ export abstract class ParentTemplateNode extends TemplateNode {
     return newNode
   }
 
-  public getTagOpenStartToken (): Token<TokenType.TAG_OPEN_START> {
-    return this.getFirstTokenOfTypeOrThrow(TokenType.TAG_OPEN_START)
-  }
-
-  public getTagOpenEndToken (): Token<TokenType.TAG_OPEN_END> {
-    return this.getFirstTokenOfTypeOrThrow(TokenType.TAG_OPEN_END)
-  }
-
-  public getTagCloseToken (): Token<TokenType.TAG_CLOSE> {
-    return this.getFirstTokenOfTypeOrThrow(TokenType.TAG_CLOSE)
-  }
-
-  public getStartTagNameLocationSpan (): LocationSpan {
-    const token = this.getTagOpenStartToken()
-    return token.locationSpan.clone().moveStartBy(1) // leading "<"
-  }
-
-  public getEndTagNameLocationSpan (): LocationSpan {
-    const token = this.getTagCloseToken()
-    return token.locationSpan.clone().moveEndBy(-1) // trailing ">"
-  }
-
-  public _setAttributes (attributes: AttributeTemplateNode[]) {
+  public _setAttributes (attributes: AttributeLikeTemplateNode[]) {
     this.attributes = attributes
   }
 
@@ -659,141 +535,58 @@ export abstract class ParentTemplateNode extends TemplateNode {
     )
   }
 
-  public getAttributes<T extends AttributeTemplateNode> (guard: (attr: AttributeTemplateNode) => attr is T): T[]
-  public getAttributes (predicate?: Predicate<AttributeTemplateNode> | undefined): AttributeTemplateNode[]
-  public getAttributes (predicate?: Predicate<AttributeTemplateNode>): AttributeTemplateNode[] {
+  public getAttributes<T extends AttributeLikeTemplateNode> (guard: (attr: AttributeLikeTemplateNode) => attr is T): T[]
+  public getAttributes (predicate?: Predicate<AttributeLikeTemplateNode> | undefined): AttributeLikeTemplateNode[]
+  public getAttributes (predicate?: Predicate<AttributeLikeTemplateNode>): AttributeLikeTemplateNode[] {
     return predicate == null
       ? this.attributes
       : this.attributes.filter(predicate)
   }
 
-  public getFirstAttribute<T extends AttributeTemplateNode> (guard: (attr: AttributeTemplateNode) => attr is T): T | undefined
-  public getFirstAttribute (predicate?: Predicate<AttributeTemplateNode> | undefined): AttributeTemplateNode | undefined
-  public getFirstAttribute (predicate?: Predicate<AttributeTemplateNode>): AttributeTemplateNode | undefined {
+  public getFirstAttribute<T extends AttributeLikeTemplateNode> (guard: (attr: AttributeLikeTemplateNode) => attr is T): T | undefined
+  public getFirstAttribute (predicate?: Predicate<AttributeLikeTemplateNode> | undefined): AttributeLikeTemplateNode | undefined
+  public getFirstAttribute (predicate?: Predicate<AttributeLikeTemplateNode>): AttributeLikeTemplateNode | undefined {
     const attributes = this.getAttributes()
     return predicate == null
       ? attributes[0]
       : attributes.find(predicate)
   }
 
-  public getFirstAttributeOrThrow<T extends AttributeTemplateNode> (guard: (attr: AttributeTemplateNode) => attr is T): T
-  public getFirstAttributeOrThrow (predicate?: Predicate<AttributeTemplateNode> | undefined): AttributeTemplateNode
-  public getFirstAttributeOrThrow (predicate?: Predicate<AttributeTemplateNode>): AttributeTemplateNode {
+  public getFirstAttributeOrThrow<T extends AttributeLikeTemplateNode> (guard: (attr: AttributeLikeTemplateNode) => attr is T): T
+  public getFirstAttributeOrThrow (predicate?: Predicate<AttributeLikeTemplateNode> | undefined): AttributeLikeTemplateNode
+  public getFirstAttributeOrThrow (predicate?: Predicate<AttributeLikeTemplateNode>): AttributeLikeTemplateNode {
     return throwIfUndefined(this.getFirstAttribute(predicate), `Expected to find an attribute.`)
   }
 
 }
 
-export class RootTemplateNode extends ParentTemplateNode {
+/**
+ * Represents nodes which cannot be parents of other nodes, in the literal XML-ish sense.
+ * This includes things like text and attributes.
+ */
+export abstract class ChildTemplateNode extends TemplateNode {
+}
 
-  private roots?: Array<TemplateNode>
-
-  public constructor (project: Project,
-                      template: Template) {
-    super(project, [new Token(TokenType.TRIVIA, [], LocationSpan.FromFullFile(template.getFile()))], template)
-  }
-
-  public getChildren (): TemplateNode[] {
-    return this.getRoots()
-  }
-
-  /**
-   * @param roots
-   *
-   * @internal
-   */
-  public _setRoots (roots: TemplateNode[]) {
-    if (this.roots != null) {
-      throw new Error(`Roots have already been set.`)
-    }
-    this.roots = roots
-  }
-
-  /**
-   * Get the root-level template nodes, which represent the roots of the template's forest.
-   */
-  private getRoots () {
-    return throwIfUndefined(this.roots, `Forgot to call setRoots.`)
-  }
+/**
+ * Element-like things that we commonly consider "elements" of the template.
+ * The distinction between "components", "directives" etc aren't made on this level.
+ *
+ * @todo Add a method that will find all matching directives, and all matching directives in this module.
+ */
+export abstract class ElementLikeTemplateNode extends ParentTemplateNode {
 
 }
 
-
-export class ElementTemplateNode extends ParentTemplateNode {
-
-  public getTagName (): string {
-    return this.getStartTagNameLocationSpan().getText()
-  }
-
-  public hasTagName (tagName: string): boolean {
-    return this.getTagName() == tagName
-  }
-
-  public changeTagName (newTagName: string): this {
-    this._replaceTextByTokens([
-      { token: this.getTagOpenStartToken(), newText: '<' + newTagName },
-      { token: this.getTagCloseToken(), newText: '</' + newTagName + '>' },
-    ])
-    return this
-  }
-
-  /**
-   * @todo
-   * @param classNames
-   */
-  public addClassNames (...classNames: string[]): this {
-    throw new Error(`Not implemented.`)
-  }
-
-  /**
-   * @todo
-   * @param classNames
-   */
-  public removeClassNames (...classNames: string[]): this {
-    throw new Error(`Not implemented.`)
-  }
-
-  /**
-   * @todo
-   * @param id
-   * @param overwrite
-   * @param throwIfOverWrite
-   */
-  public setId (id: string, { overwrite = false, throwIfOverWrite = false } = {}): this {
-    throw new Error(`Not implemented.`)
-  }
-
-  /**
-   * @todo
-   * @param throwIfAlreadyNotPresent
-   */
-  public removeId ({ throwIfAlreadyNotPresent = false } = {}): this {
-    throw new Error(`Not implemented.`)
-  }
-
+/**
+ * Text, interpolation, ICU messages (TODO).
+ */
+export abstract class TextLikeTemplateNode extends ChildTemplateNode {
 }
 
-export class NgTemplateTemplateNode extends ParentTemplateNode {
-
-  public getTagName (): string {
-    return `ng-template`
-  }
-
-}
-
-export class NgContainerTemplateNode extends ParentTemplateNode {
-
-  public getTagName (): string {
-    return `ng-container`
-  }
-
-}
-
-// endregion Elements, ng-template and ng-container
-
-// region Attributes (text attributes, inputs, outputs)
-
-export abstract class AttributeTemplateNode extends TemplateNode {
+/**
+ * Attributes, including bindings and structural directives.
+ */
+export abstract class AttributeLikeTemplateNode extends ChildTemplateNode {
 
   protected getNameToken (): Token<TokenType.ATTR_NAME> {
     return this.getFirstTokenOfTypeOrThrow(TokenType.ATTR_NAME)
@@ -875,7 +668,218 @@ export abstract class AttributeTemplateNode extends TemplateNode {
 
 }
 
-export class TextAttributeTemplateNode extends AttributeTemplateNode {
+// region Elements, ng-template and ng-container
+
+export class RootTemplateNode extends ParentTemplateNode {
+
+  private roots?: Array<TemplateNode>
+
+  public constructor (project: Project,
+                      template: Template) {
+    super(project, [new Token(TokenType.TRIVIA, [], LocationSpan.FromFullFile(template.getFile()))], template)
+  }
+
+  public getChildren (): TemplateNode[] {
+    return this.getRoots()
+  }
+
+  /**
+   * @param roots
+   *
+   * @internal
+   */
+  public _setRoots (roots: TemplateNode[]) {
+    if (this.roots != null) {
+      throw new Error(`Roots have already been set.`)
+    }
+    this.roots = roots
+  }
+
+  /**
+   * Get the root-level template nodes, which represent the roots of the template's forest.
+   */
+  private getRoots () {
+    return throwIfUndefined(this.roots, `Forgot to call setRoots.`)
+  }
+
+}
+
+export class ElementTemplateNode extends ElementLikeTemplateNode {
+
+  public getTagName (): string {
+    return this.getStartTagNameLocationSpan().getText()
+  }
+
+  public hasTagName (tagName: string): boolean {
+    return this.getTagName() == tagName
+  }
+
+  public changeTagName (newTagName: string): this {
+    this._replaceTextByTokens([
+      { token: this.getTagOpenStartToken(), newText: '<' + newTagName },
+      { token: this.getTagCloseToken(), newText: '</' + newTagName + '>' },
+    ])
+    return this
+  }
+
+  /**
+   * @todo
+   * @param classNames
+   */
+  public addClassNames (...classNames: string[]): this {
+    throw new Error(`Not implemented.`)
+  }
+
+  /**
+   * @todo
+   * @param classNames
+   */
+  public removeClassNames (...classNames: string[]): this {
+    throw new Error(`Not implemented.`)
+  }
+
+  /**
+   * @todo
+   * @param id
+   * @param overwrite
+   * @param throwIfOverWrite
+   */
+  public setId (id: string, { overwrite = false, throwIfOverWrite = false } = {}): this {
+    throw new Error(`Not implemented.`)
+  }
+
+  /**
+   * @todo
+   * @param throwIfAlreadyNotPresent
+   */
+  public removeId ({ throwIfAlreadyNotPresent = false } = {}): this {
+    throw new Error(`Not implemented.`)
+  }
+
+}
+
+export class NgTemplateTemplateNode extends ElementLikeTemplateNode {
+
+  public getTagName (): string {
+    return `ng-template`
+  }
+
+}
+
+export class NgContainerTemplateNode extends ElementLikeTemplateNode {
+
+  public getTagName (): string {
+    return `ng-container`
+  }
+
+}
+
+// endregion Elements, ng-template and ng-container
+
+// region Text and interpolation
+
+export class TextTemplateNode extends TextLikeTemplateNode {
+
+  protected getTextToken (): Token<TokenType.TEXT> {
+    return this.getFirstTokenOfTypeOrThrow(TokenType.TEXT)
+  }
+
+  public getText (): string {
+    return this.getTextToken().toString()
+  }
+
+  public getChildren (): never[] {
+    return []
+  }
+
+}
+
+/**
+ * Represents an interpolation node in the template.
+ *
+ * @example
+ * text {{ interpolated.expression }} more text
+ *
+ * @todo Expose the inner structure of the expression instead of just a string.
+ */
+export class InterpolationTemplateNode extends TextLikeTemplateNode {
+
+  public getTextToken () {
+    return this.getFirstTokenOfTypeOrThrow(TokenType.TEXT)
+  }
+
+  public getText (): string {
+    return this.getTextToken().toString()
+  }
+
+  public getChildren (): never[] {
+    return []
+  }
+
+  /**
+   * Changes the text within interpolation. Causes re-parsig of the inner AST of the expression,
+   * so these nodes will be forgotten. Easiest to write quickly, but the slowest method for
+   * changing the interpolated expression. Prefer navigating the inner AST over using this method.
+   *
+   * @param newText - The text that will replace the old text.
+   *
+   * @example
+   * interpolationNode.changeText('newText')
+   *
+   * @todo This needs to cause re-parse of the inner AST.
+   */
+  public changeText (newText: string): this {
+    this._replaceTextByTokens([
+      { token: this.getTextToken(), newText },
+    ])
+    return this
+  }
+
+  /**
+   * Changes the whitespace around the expression so that each side has the given number of
+   * whitespace.
+   *
+   * When zero is given as the argument, it acts the same as {@link trimText}.
+   * When one is given as the argument, itacts the same as {@link padText}.
+   *
+   * @param padding - How many space characters should be placed around the string.
+   *
+   */
+  public setTextPadding (padding: number): this {
+    const trimmedText = this.getText().trim()
+    const length = trimmedText.length
+    const newText = trimmedText
+      .padStart(length + padding)
+      .padEnd(length + 2 * padding)
+    this.changeText(newText)
+    return this
+  }
+
+  /**
+   * Removes any space inside the interpolation brackets.
+   *
+   * @see setTextPadding
+   */
+  public trimText (): this {
+    return this.setTextPadding(0)
+  }
+
+  /**
+   * Formats interpolation so exactly one space character is around each side of the expression.
+   *
+   * @see setTextPadding
+   */
+  public padText (): this {
+    return this.setTextPadding(1)
+  }
+
+}
+
+// endregion Text and interpolation
+
+// region Attributes (text attributes, inputs, outputs)
+
+export class TextAttributeTemplateNode extends AttributeLikeTemplateNode {
 
   public getName (): string {
     return this.getAttributeNameString()
@@ -891,11 +895,11 @@ export class TextAttributeTemplateNode extends AttributeTemplateNode {
 
 }
 
-export class BoundAttributeTemplateNode extends AttributeTemplateNode {
+export class BoundAttributeTemplateNode extends AttributeLikeTemplateNode {
 
 }
 
-export class BoundEventTemplateNode extends AttributeTemplateNode {
+export class BoundEventTemplateNode extends AttributeLikeTemplateNode {
 
   public getHandler (): string | undefined {
     return this.getAttributeValueString()
