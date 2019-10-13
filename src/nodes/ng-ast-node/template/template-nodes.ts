@@ -15,18 +15,13 @@ import {
 import { getTokenTypeName, Token, TokenType } from './tokenizer/lexer'
 import { InsertionRule, lastChild } from './template-node-insertion-rules'
 import {
-  AttributeLikeTemplateNodeType, ChildTemplateNodeType,
+  ChildTemplateNodeType,
   createNode,
   ElementLikeTemplateNodeType,
   isElementLikeStructure,
   ParentTemplateNodeToParentTemplateNodeType,
-  ParentTemplateNodeType,
-  TemplateNodeToTemplateNodeType,
   TemplateNodeTypeToTemplateNodeMap,
   TemplateNodeTypeToTemplateNodeStructureMap,
-  TemplateNodeTypeWithoutRoot,
-  TemplateNodeTypeWithoutRootWithoutAttributes,
-  TextLikeTemplateNodeType,
 } from './template-nodes-structs'
 
 /**
@@ -348,12 +343,17 @@ export abstract class ParentTemplateNode extends TemplateNode {
 
   public getStartTagNameLocationSpan (): LocationSpan {
     const token = this.getTagOpenStartToken()
-    return token.locationSpan.clone().moveStartBy(1) // leading "<"
+    return token.locationSpan
+      .clone({ doNotCloneListeners: true })
+      .moveStartBy(1) // leading "<"
   }
 
   public getEndTagNameLocationSpan (): LocationSpan {
     const token = this.getTagCloseToken()
-    return token.locationSpan.clone().moveStartBy(2).moveEndBy(-1) // leading "</", trailing ">"
+    return token.locationSpan
+      .clone({ doNotCloneListeners: true })
+      .moveStartBy(2) // leading "</"
+      .moveEndBy(-1) // trailing ">"
   }
 
   /**

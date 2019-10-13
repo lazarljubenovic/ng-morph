@@ -2,7 +2,7 @@ import * as tsm from 'ts-morph'
 import { SimpleCache } from '../../utils/manager'
 import * as path from 'path'
 import * as fs from 'fs'
-import { getFirstElementOrThrow, getLastElementOrThrow } from '../../utils'
+import { concatErrors, getFirstElementOrThrow, getLastElementOrThrow } from '../../utils'
 
 function isNewLine (char: string) {
   if (char.length !== 1) {
@@ -90,11 +90,19 @@ export const DEFAULT_POINTER_VARIATIONS: PointerVariations = {
 
 type EventListenerOffset = (offset: number) => void
 
+interface SetLocationPointerOffsetOptions {
+  allowEvenIfFrozen: boolean
+  doNotEmitEvent: boolean
+}
+
 export class LocationPointer {
 
   private zeroBasedOffset: number
   private zeroBasedLine?: number
   private zeoBasedCol?: number
+
+  private _isFrozen: boolean = false
+  private frozenMessage?: string
 
   public constructor (
     private locationFile: LocationFile,
@@ -125,10 +133,15 @@ export class LocationPointer {
     return this.zeoBasedCol! + (vars.oneBased ? 1 : 0)
   }
 
-  public setOffset (offset: number): this {
+  public setOffset (offset: number, options: Partial<SetLocationPointerOffsetOptions> = {}): this {
+    const {
+      doNotEmitEvent = false,
+      allowEvenIfFrozen = false,
+    } = options
+    if (!allowEvenIfFrozen) this.assertNotFrozen(`Cannot set offset.`)
     this.zeroBasedOffset = offset
     this.invalidateLineAndCol()
-    this.eventListeners.forEach(listener => listener(this.zeroBasedOffset))
+    if (!doNotEmitEvent) this.eventListeners.forEach(listener => listener(this.zeroBasedOffset))
     return this
   }
 
@@ -222,6 +235,26 @@ export class LocationPointer {
     return null
   }
 
+  public isFrozen (): boolean {
+    return this._isFrozen
+  }
+
+  public freeze (message?: string): this {
+    this.assertNotFrozen(`Cannot freeze again.`)
+    this._isFrozen = true
+    this.frozenMessage = message
+    return this
+  }
+
+  public assertNotFrozen (errMsg: string = `Cannot perform operation.`): void {
+    if (this.isFrozen()) {
+      const mainErrorMessage = this.frozenMessage == null
+        ? `LocationPointer frozen.`
+        : `LocationPointer frozen: "${this.frozenMessage}".`
+      const error = concatErrors(mainErrorMessage, errMsg)
+      throw new Error(error)
+    }
+  }
 
   private computeLineAndCol () {
     const fileContent = this.getFile().getContent()
@@ -308,11 +341,21 @@ export class LocationSpan {
   }
 
   public static ReactiveFromSeveralOrdered (...locationSpans: LocationSpan[]): LocationSpan {
-    const result = LocationSpan.FromSeveral(...locationSpans)
     const first = getFirstElementOrThrow(locationSpans)
     const last = getLastElementOrThrow(locationSpans)
-    first.getStart().addEventListener(offset => result.setStartOffset(offset))
-    last.getEnd().addEventListener(offset => result.setEndOffset(offset))
+    const file = first.getFile()
+    const result = LocationSpan.FromFullFile(file)
+
+    result.setStartOffset(first.getStartOffset())
+    result.setEndOffset(last.getEndOffset())
+
+    first.getStart().addEventListener(offset => result.setStartOffset(offset, { allowEvenIfFrozen: true }))
+    last.getEnd().addEventListener(offset => result.setEndOffset(offset, { allowEvenIfFrozen: true }))
+
+    const errorMessage = `This LocationPointer is reactive, and will be updated when the underlying tokens change.`
+    result.getStart().freeze(errorMessage)
+    result.getEnd().freeze(errorMessage)
+
     return result
   }
 
@@ -348,13 +391,13 @@ export class LocationSpan {
     return this
   }
 
-  public setStartOffset (newStartOffset: number): this {
-    this.start.setOffset(newStartOffset)
+  public setStartOffset (newStartOffset: number, options: Partial<SetLocationPointerOffsetOptions> = {}): this {
+    this.start.setOffset(newStartOffset, options)
     return this
   }
 
-  public setEndOffset (newEndOffset: number): this {
-    this.end.setOffset(newEndOffset)
+  public setEndOffset (newEndOffset: number, options: Partial<SetLocationPointerOffsetOptions> = {}): this {
+    this.end.setOffset(newEndOffset, options)
     return this
   }
 

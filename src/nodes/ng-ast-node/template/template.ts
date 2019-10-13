@@ -4,7 +4,14 @@ import * as tg from 'type-guards'
 import { RootTemplateNode, TemplateNode } from './template-nodes'
 import { fromHtmlNode } from './factory'
 import { LocationFile, LocationSpan } from '../location'
-import { getFirstElementOrThrow, getLastElementOrThrow, Predicate, TapFn, throwIfUndefined } from '../../../utils'
+import {
+  concatErrors,
+  getFirstElementOrThrow,
+  getLastElementOrThrow,
+  Predicate,
+  TapFn,
+  throwIfUndefined,
+} from '../../../utils'
 import { HtmlParser } from './tokenizer/html_parser'
 import { getHtmlTagDefinition } from './tokenizer/html_tags'
 import { Token, tokenize } from './tokenizer/lexer'
@@ -259,10 +266,12 @@ export class Template extends NgAstNode {
     return undefined
   }
 
-  public getFirstTemplateNodeOrThrow<T extends TemplateNode> (guard: tg.Guard<T>): T
-  public getFirstTemplateNodeOrThrow (predicate?: Predicate<TemplateNode> | undefined): TemplateNode
-  public getFirstTemplateNodeOrThrow (predicate?: Predicate<TemplateNode>): TemplateNode {
-    return throwIfUndefined(this.getFirstTemplateNode(predicate), `Expected to find at least one template node.`)
+  public getFirstTemplateNodeOrThrow<T extends TemplateNode> (guard: tg.Guard<T>, errMsg?: string): T
+  public getFirstTemplateNodeOrThrow (predicate?: Predicate<TemplateNode> | undefined, errMsg?: string): TemplateNode
+  public getFirstTemplateNodeOrThrow (predicate?: Predicate<TemplateNode>, errMsg?: string): TemplateNode {
+    const mainError = `Expected to find at least one template node which satisfies the given predicate.`
+    const error = concatErrors(mainError, errMsg)
+    return throwIfUndefined(this.getFirstTemplateNode(predicate), error)
   }
 
 }
