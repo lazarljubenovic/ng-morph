@@ -1,5 +1,5 @@
 import * as tn from './template-nodes'
-import { ElementLikeTemplateNode } from './template-nodes'
+import { ElementLikeTemplateNode, MacroSyntaxAttributeTemplateNode } from './template-nodes'
 import * as tg from 'type-guards'
 
 export const is = tg.isInstanceOf(tn.TemplateNode)
@@ -22,7 +22,7 @@ export const isBoundAttribute = tg.isInstanceOf(tn.BoundAttributeTemplateNode)
 export const isBoundEvent = tg.isInstanceOf(tn.BoundEventTemplateNode)
 // export const isBananaInTheBox = tg.isInstanceOf(tn.BananaInTheBoxTemplateNode)
 // export const isReference = tg.isInstanceOf(tn.ReferenceTemplateNode)
-
+export const isMacroSyntaxAttribute = tg.isInstanceOf(MacroSyntaxAttributeTemplateNode)
 
 // region Attribute
 
@@ -31,6 +31,9 @@ export const isTextAttributeWithName = (attributeName: string) =>
 
 export const isTextAttributeWithValue = (attributeValue: string) =>
   tg.fp.and(isTextAttribute, attribute => attribute.getValue() == attributeValue)
+
+export const isMacroSyntaxAttributeWithName = (name: string) =>
+  tg.fp.and(isMacroSyntaxAttribute, attribute => attribute.getName() == name)
 
 // endregion Attribute
 
@@ -54,6 +57,11 @@ export const hasClassName = (className: string) =>
     })
   }
 
+export const hasMacroSyntaxAttributeWithName = (attributeName: string) =>
+  (elementLikeNode: ElementLikeTemplateNode) =>
+    elementLikeNode.getAttributes(isMacroSyntaxAttribute)
+      .find(attribute => attribute.getName() == attributeName) != null
+
 export const isElementWithId = (id: string) =>
   tg.fp.and(isElement, hasId(id))
 
@@ -61,6 +69,9 @@ export const isElementWithClassName = (className: string) =>
   tg.fp.and(isElement, hasClassName(className))
 
 // todo: isComponentSelectorFor(), ...
+
+export const isElementWithMacroSyntaxAttributeWithName = (attributeName: string) =>
+  tg.fp.and(isElement, hasMacroSyntaxAttributeWithName(attributeName))
 
 // endregion Element
 

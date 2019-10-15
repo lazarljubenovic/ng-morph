@@ -919,32 +919,50 @@ export class BoundEventTemplateNode extends AttributeLikeTemplateNode {
 //   }
 //
 // }
-//
-// export class ReferenceTemplateNode extends AttributeTemplateNode {
-//
-//   public getTemplateChildren (): TemplateNode[] {
-//     return []
-//   }
-//
-// }
+
+export class ReferenceTemplateNode extends AttributeLikeTemplateNode {
+
+  /**
+   * Gets the name without the leading hash.
+   *
+   * To get the full attribute name (with the hash), see {@link AttributeLikeTemplateNode.getAttributeNameString}.
+   */
+  public getName (): string {
+    return this.getAttributeNameString().slice(1) // removing the leading "#"
+  }
+
+}
+
+export class MacroSyntaxAttributeTemplateNode extends AttributeLikeTemplateNode {
+
+  /**
+   * Gets the name without the leading star.
+   *
+   * To get the full attribute name (with the star), see {@link AttributeLikeTemplateNode.getAttributeNameString}.
+   */
+  public getName (): string {
+    return this.getAttributeNameString().slice(1) // removing the leading *
+  }
+
+}
 
 // endregion Attributes (text attributes, inputs, outputs)
 
-// export class CommentTemplateNode extends TemplateNode {
-//
-//   private getRawTextToken (): Token<TokenType.RAW_TEXT> {
-//     return this.getFirstTokenOfTypeOrThrow(TokenType.RAW_TEXT)
-//   }
-//
-//   public getValue (): string {
-//     return this.getRawTextToken().toString()
-//   }
-//
-//   public getTemplateChildren (): TemplateNode[] {
-//     return []
-//   }
-//
-// }
+export class CommentTemplateNode extends TemplateNode {
+
+  private getRawTextToken (): Token<TokenType.RAW_TEXT> {
+    return this.getFirstTokenOfTypeOrThrow(TokenType.RAW_TEXT)
+  }
+
+  public getValue (): string {
+    return this.getRawTextToken().toString()
+  }
+
+  public getChildren (): TemplateNode[] {
+    return []
+  }
+
+}
 //
 // export abstract class BindingTargetTemplateNode extends TemplateNode {
 // }

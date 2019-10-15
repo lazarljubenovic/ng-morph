@@ -152,7 +152,7 @@ export class Component extends Declarable {
   private getInlineTemplateLocationSpan (): LocationSpan | undefined {
     const property = this.getDecoratorProperty(
       'template',
-      TypeGuards.isStringLiteral,
+      tg.fp.or(TypeGuards.isStringLiteral, TypeGuards.isNoSubstitutionTemplateLiteral),
       kind => `Expected @Component.template to be a string literal, but got ${kind}.`,
     )
     if (property == null) {

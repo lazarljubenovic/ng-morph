@@ -9,6 +9,7 @@ import { SyntaxKind } from 'ts-morph'
 import { Project } from '../../project'
 import { resolveArrayDestructing } from '../../utils/array-destructing-resolver'
 import {
+  getFirstElementOrThrow,
   getPropertyValueOfKind,
   getPropertyValueOfKindOrThrow,
   throwIfLengthNotOne,
@@ -53,7 +54,7 @@ function readRoutingInfoFromExpression (project: Project, callExpression: tsm.Ex
   const isForChild = methodName.getText() == 'forChild' // todo: test this against a reference
 
   const args = callExpression.getArguments()
-  const arg = throwIfLengthNotOne(args, actual => `Expected only a single argument in ${callExpression.getText()}, instead got ${actual}.`)
+  const arg = getFirstElementOrThrow(args, `Expected at least a single argument in ${callExpression.getText()}.`)
   const arrayLiteralExpression = resolveTo(arg, SyntaxKind.ArrayLiteralExpression)
 
   return {

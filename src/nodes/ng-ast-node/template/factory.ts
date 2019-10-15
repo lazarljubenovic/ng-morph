@@ -1,9 +1,9 @@
 import { Project } from '../../../project'
 import {
   BoundAttributeTemplateNode,
-  BoundEventTemplateNode,
+  BoundEventTemplateNode, CommentTemplateNode,
   ElementTemplateNode,
-  InterpolationTemplateNode,
+  InterpolationTemplateNode, MacroSyntaxAttributeTemplateNode,
   NgContainerTemplateNode,
   NgTemplateTemplateNode,
   TemplateNode,
@@ -12,7 +12,7 @@ import {
 } from './template-nodes'
 import * as tg from 'type-guards'
 import { Template, TemplateConfig } from './template'
-import { Attribute, Element, Node, Text } from './tokenizer/ast'
+import { Attribute, Comment, Element, Node, Text } from './tokenizer/ast'
 
 const NG_CONTAINER_TAG_NAME = 'ng-container'
 const NG_TEMPLATE_TAG_NAME = 'ng-template'
@@ -62,21 +62,24 @@ export function fromAttribute (project: Project,
   // if (name.startsWith('#')) {
   //   return new ReferenceTemplateNode(project, tokens, template)
   // }
+  if (name.startsWith('*')) {
+    return new MacroSyntaxAttributeTemplateNode(project, tokens, template)
+  }
   return new TextAttributeTemplateNode(project, tokens, template)
 }
 
-// export function fromComment (project: Project,
-//                              template: Template,
-//                              templateConfig: TemplateConfig,
-//                              htmlNode: Comment): CommentTemplateNode {
-//   return new CommentTemplateNode(project, htmlNode.tokens, template)
-// }
+export function fromComment (project: Project,
+                             template: Template,
+                             templateConfig: TemplateConfig,
+                             htmlNode: Comment): CommentTemplateNode {
+  return new CommentTemplateNode(project, htmlNode.tokens, template)
+}
 
 export function fromHtmlNode (project: Project, template: Template, templateConfig: TemplateConfig, htmlNode: Node): Array<TemplateNode> {
   if (tg.isInstanceOf(Text)(htmlNode)) return fromText(project, template, templateConfig, htmlNode)
   if (tg.isInstanceOf(Element)(htmlNode)) return [fromElement(project, template, templateConfig, htmlNode)]
   if (tg.isInstanceOf(Attribute)(htmlNode)) return [fromAttribute(project, template, templateConfig, htmlNode)]
-  // if (tg.isInstanceOf(Comment)(htmlNode)) return [fromComment(project, template, templateConfig, htmlNode)]
+  if (tg.isInstanceOf(Comment)(htmlNode)) return [fromComment(project, template, templateConfig, htmlNode)]
 
   console.error(htmlNode)
   throw new Error(`Not yet implemented.`)

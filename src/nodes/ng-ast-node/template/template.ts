@@ -274,4 +274,11 @@ export class Template extends NgAstNode {
     return throwIfUndefined(this.getFirstTemplateNode(predicate), error)
   }
 
+  public saveToDisk () {
+    const file = this.getFile()
+    if (file.isDirty()) {
+      file.saveToDisk()
+    }
+  }
+
 }

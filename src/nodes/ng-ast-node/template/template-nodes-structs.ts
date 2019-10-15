@@ -7,6 +7,7 @@ import {
   NgContainerTemplateNode,
   NgTemplateTemplateNode,
   ParentTemplateNode,
+  ReferenceTemplateNode,
   RootTemplateNode,
   TemplateNode,
   TemplateNodeConstructor,
@@ -27,6 +28,7 @@ export enum TemplateNodeType {
   TextAttribute,
   BoundAttribute,
   BoundEvent,
+  Reference,
 }
 
 export type TemplateNodeTypeWithoutRoot = Exclude<TemplateNodeType, TemplateNodeType.Root>
@@ -50,6 +52,7 @@ export type AttributeLikeTemplateNodeType =
   | TemplateNodeType.TextAttribute
   | TemplateNodeType.BoundAttribute
   | TemplateNodeType.BoundEvent
+  | TemplateNodeType.Reference
 
 export type ChildTemplateNodeType =
   | TextLikeTemplateNodeType
@@ -65,6 +68,7 @@ export const isAttributeLikeTemplateNodeType = tg.isEnum<AttributeLikeTemplateNo
   TemplateNodeType.TextAttribute,
   TemplateNodeType.BoundAttribute,
   TemplateNodeType.BoundEvent,
+  TemplateNodeType.Reference,
 )
 
 const isStructure = <T extends TemplateNodeTypeWithoutRoot> (guard: (type: TemplateNodeType) => type is T) => {
@@ -86,6 +90,7 @@ export interface TemplateNodeTypeToTemplateNodeStructureMap {
   [TemplateNodeType.TextAttribute]: TextAttributeTemplateNodeStructure
   [TemplateNodeType.BoundAttribute]: BoundAttributeTemplateNodeStructure
   [TemplateNodeType.BoundEvent]: BoundEventTemplateNodeStructure
+  [TemplateNodeType.Reference]: ReferenceTemplateNodeStructure
 }
 
 type TemplateNodeStructure = ValueOf<TemplateNodeTypeToTemplateNodeStructureMap>
@@ -100,6 +105,7 @@ export interface TemplateNodeTypeToTemplateNodeMap {
   [TemplateNodeType.TextAttribute]: TextAttributeTemplateNode
   [TemplateNodeType.BoundAttribute]: BoundAttributeTemplateNode
   [TemplateNodeType.BoundEvent]: BoundEventTemplateNode
+  [TemplateNodeType.Reference]: ReferenceTemplateNode
 }
 
 type TemplateNodeTypeToTemplateNodeMapGeneric<T extends TemplateNodeType> = TemplateNodeTypeToTemplateNodeMap[T]
@@ -114,7 +120,9 @@ export type ParentTemplateNodeToParentTemplateNodeType<T extends ParentTemplateN
         ? TemplateNodeType.NgTemplate
         : T extends NgContainerTemplateNode
           ? TemplateNodeType.NgContainer
-          : never
+          : T extends ReferenceTemplateNode
+            ? TemplateNodeType.Reference
+            : never
 
 interface CreateResult<T extends TemplateNodeTypeWithoutRoot> {
   ctor: TemplateNodeConstructor<TemplateNodeTypeToTemplateNodeMap[T]>,
@@ -171,6 +179,10 @@ export interface BoundEventTemplateNodeStructure extends StructureBase<TemplateN
   name: string
   value: string // TODO: inner AST
   usePrefix?: boolean
+}
+
+export interface ReferenceTemplateNodeStructure extends StructureBase<TemplateNodeType.Reference> {
+  name: string
 }
 
 // const createText: Create<TemplateNodeType.Text> =
@@ -241,6 +253,13 @@ const templateNodeTypeToCreateMap: { [T in TemplateNodeTypeWithoutRoot]: Create<
       { type: TokenType.ATTR_QUOTE, text: '"' },
     ],
   }),
+  [TemplateNodeType.Reference]: structure => ({
+    ctor: ReferenceTemplateNode,
+    tokenConfigs: [
+      { type: TokenType.TRIVIA, text: ' ' },
+      { type: TokenType.ATTR_NAME, text: '#' + structure.name },
+    ]
+  })
 }
 
 export const createNode = <T extends TemplateNodeTypeWithoutRoot> (

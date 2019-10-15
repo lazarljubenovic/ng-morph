@@ -78,9 +78,14 @@ export class Project {
     return this
   }
 
-  public getComponentsByClassName (className: string): Component[] {
+  public getComponents (): Component[] {
     const ngModules = this.getNgModules()
-    return flatMap(ngModules, ngModule => ngModule.getComponents().filter(component => component.getName() == className))
+    return flatMap(ngModules, ngModule => ngModule.getComponents())
+  }
+
+  // TODO: Remove this and many others in favor of selectors.
+  public getComponentsByClassName (className: string): Component[] {
+    return this.getComponents().filter(component => component.getName() == className)
   }
 
   /**

@@ -18,7 +18,7 @@ export class LocationFileManager extends SimpleCache<tsm.SourceFile | string, Lo
         throw new Error(`Path must be absolute. Got: "${sourceFileOrAbsolutePath}".`)
       }
       const uri = sourceFileOrAbsolutePath
-      const content = fs.readFileSync(uri, { encoding: 'utf8' })
+      const content = fs.readFileSync(uri, {encoding: 'utf8'})
       return new LocationFile(uri, content)
     } else {
       const uri = sourceFileOrAbsolutePath.getFilePath()
@@ -76,6 +76,10 @@ export class LocationFile {
 
   public deleteText (offsetIndex: number, deleteCount: number): void {
     this.replaceText(offsetIndex, deleteCount, '')
+  }
+
+  public saveToDisk () {
+    fs.writeFileSync(this.getUri(), this.getContent(), {encoding: 'utf8'})
   }
 
 }
@@ -349,8 +353,8 @@ export class LocationSpan {
     result.setStartOffset(first.getStartOffset())
     result.setEndOffset(last.getEndOffset())
 
-    first.getStart().addEventListener(offset => result.setStartOffset(offset, { allowEvenIfFrozen: true }))
-    last.getEnd().addEventListener(offset => result.setEndOffset(offset, { allowEvenIfFrozen: true }))
+    first.getStart().addEventListener(offset => result.setStartOffset(offset, {allowEvenIfFrozen: true}))
+    last.getEnd().addEventListener(offset => result.setEndOffset(offset, {allowEvenIfFrozen: true}))
 
     const errorMessage = `This LocationPointer is reactive, and will be updated when the underlying tokens change.`
     result.getStart().freeze(errorMessage)
@@ -459,8 +463,8 @@ export class LocationSpan {
   public clone ({
                   doNotCloneListeners = false,
                 } = {}): LocationSpan {
-    const start = this.getStart().clone({ doNotCloneListeners })
-    const end = this.getEnd().clone({ doNotCloneListeners })
+    const start = this.getStart().clone({doNotCloneListeners})
+    const end = this.getEnd().clone({doNotCloneListeners})
     return new LocationSpan(start, end)
   }
 
